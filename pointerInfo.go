@@ -3,7 +3,7 @@ package main
 import "golang.org/x/sys/windows"
 
 type (
-	POINTER_INPUT_TYPE         int32
+	POINTER_INPUT_TYPE         uint32
 	POINTER_FLAGS              int32
 	POINTER_BUTTON_CHANGE_TYPE int32
 )
@@ -37,7 +37,7 @@ const (
 )
 
 const (
-	PT_TOUCH POINTER_INPUT_TYPE = 2
+	PT_TOUCH int32 = 2
 )
 
 type POINT struct {
@@ -45,10 +45,10 @@ type POINT struct {
 }
 
 type POINTER_INFO struct {
-	pointerType        POINTER_INPUT_TYPE
+	pointerType        int32
 	pointerId          uint32
 	frameId            uint32
-	pointerFlags       POINTER_FLAGS
+	pointerFlags       uint32
 	sourceDevice       windows.Handle
 	hwndTarget         windows.HWND
 	ptPixelLocation    POINT
@@ -60,5 +60,5 @@ type POINTER_INFO struct {
 	InputData          int32
 	dwKeyStates        uint32
 	PerformanceCount   uint64
-	ButtonChangeType   POINTER_BUTTON_CHANGE_TYPE
+	ButtonChangeType   int32
 }

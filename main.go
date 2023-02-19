@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"log"
 )
 
@@ -58,17 +59,14 @@ func main() {
 	//if err != nil {
 	//	log.Fatal(err)
 	//}
-	_, err := InitializeTouchInjection(1, TOUCH_FEEDBACK_DEFAULT)
+	touches, err := InitializeTouches(1, TOUCH_FEEDBACK_DEFAULT)
+	if err != nil {
+		log.Fatal("initialize", err)
+	}
+	fmt.Println(touches)
+	ok, err := InjectTouchInput(uint32(len(touches)), touches)
 	if err != nil {
 		log.Fatal(err)
 	}
-	d := new(POINTER_TOUCH_INFO)
-	ok, err := InjectTouchInput(1, []*POINTER_TOUCH_INFO{
-		d,
-	})
-
-	if err != nil {
-		log.Fatal(err)
-	}
-	log.Println(ok)
+	fmt.Println(ok)
 }
