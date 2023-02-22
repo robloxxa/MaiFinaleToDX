@@ -6,5 +6,6 @@ require go.bug.st/serial v1.5.0
 
 require (
 	github.com/creack/goselect v0.1.2 // indirect
+	github.com/tevino/abool v1.2.0 // indirect
 	golang.org/x/sys v0.5.0 // indirect
 )
