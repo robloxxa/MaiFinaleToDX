@@ -1,0 +1,50 @@
+package main
+
+import (
+	"bytes"
+	"fmt"
+	"github.com/tarm/serial"
+	"log"
+)
+
+var (
+	HALT          = []byte("{HALT}") // Stop sensor
+	STAT          = []byte("{STAT}") // Start sensor
+	LEFT_BRACKET  = []byte("(")
+	RIGHT_BRACKET = []byte(")")
+)
+
+func main() {
+	c := &serial.Config{Name: "COM3", Baud: 9600, Size: 0, StopBits: 0}
+	s, err := serial.OpenPort(c)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	_, err = s.Write(STAT)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer s.Write(HALT)
+
+	buf := make([]byte, 8)
+	fmt.Printf("%q\n", buf)
+	OPENED := false
+	for {
+		n, err := s.Read(buf)
+		if err != nil {
+			log.Fatal(err)
+		}
+		fmt.Printf("%d %q\n", n, buf[:n])
+
+		if bytes.Compare(buf[:n], LEFT_BRACKET) == 0 {
+			OPENED = true
+		} else if bytes.Compare(buf[:n], RIGHT_BRACKET) == 0 {
+			OPENED = false
+		} else if OPENED {
+			//fmt.Printf("%q\n", buf[:n])
+		}
+
+	}
+
+}
