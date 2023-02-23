@@ -1,135 +1,43 @@
 package main
 
 import (
-	"bufio"
-	"fmt"
-	"github.com/tevino/abool"
 	"go.bug.st/serial"
-	"io"
 	"log"
 	"os"
 	"os/signal"
-	"sync"
 	"syscall"
 )
 
 var (
+	DXP1COM   = "COM6"
+	DXP2COM   = "COM8"
+	FinaleCOM = "COM23" // This depends on what port did you change in windows device manager
+
 	SerialMode = &serial.Mode{BaudRate: 9600, DataBits: 8}
 
-	DXP1TouchSerial *DXTouch
-	DXP2TouchSerial *DXTouch
-	FETouchSerial   *FinaleTouch
+	DXP1TouchSerial = &DXTouch{}
+	//DXP2TouchSerial = &DXTouch{}
+	FETouchSerial = &FinaleTouch{}
 )
 
-type TestValue struct {
-	sync.Mutex
-	V []byte
-}
-
 func main() {
-	mode := &serial.Mode{
-		BaudRate: 9600,
-		DataBits: 8,
-		Parity:   0,
-		StopBits: serial.OneStopBit,
+	var err error
+	DXP1TouchSerial.Port, err = serial.Open(DXP1COM, SerialMode)
+	if err != nil {
+		log.Fatal(err) // TODO: make reconnect method
 	}
-
-	dxPort, err := serial.Open("COM8", mode)
+	//DXP2TouchSerial.Port, err = serial.Open(DXP2COM, SerialMode)
+	FETouchSerial.Port, err = serial.Open(FinaleCOM, SerialMode)
 	if err != nil {
 		log.Fatal(err)
 	}
-	testValue := TestValue{
-		V: make([]byte, 7),
-	}
-	fmt.Println(testValue.V)
-	testPort, err := serial.Open("COM61", mode)
-	if err != nil {
-		log.Fatal(err)
-	}
-	bufioDXPort := bufio.NewWriter(dxPort)
+	go FETouchSerial.Recv(DXP1TouchSerial)
+	go DXP1TouchSerial.Recv(FETouchSerial)
+	//go DXP2TouchSerial.Recv(FETouchSerial)
 
-	cond := abool.New()
-
-	go func() {
-		buf := make([]byte, 6)
-
-		for {
-			_, err := io.ReadFull(dxPort, buf)
-			if err != nil {
-				log.Fatal(err)
-			}
-			log.Printf("%q %v\n", buf, buf[1:5])
-
-			switch buf[3] {
-			case CMD_HALT:
-				cond.UnSet()
-			case CMD_STAT:
-
-				cond.Set()
-			case CMD_DX_RSET:
-
-			case CMD_DX_Ratio:
-				buf[0] = '('
-				buf[5] = ')'
-				for i := range buf {
-					_, _ = dxPort.Write(buf[i : i+1])
-				}
-			case CMD_DX_Sens:
-
-				buf[0] = '('
-				buf[5] = ')'
-				for i := range buf {
-					_, _ = dxPort.Write(buf[i : i+1])
-				}
-			}
-		}
-	}()
-
-	go func() {
-		buf := make([]byte, 7)
-		for {
-			n, err := io.ReadFull(testPort, buf)
-			if err != nil {
-				log.Fatal(err)
-			}
-			testValue.Lock()
-			testValue.V = buf[:n]
-			fmt.Println(testValue.V)
-			testValue.Unlock()
-		}
-	}()
-
-	go func() {
-		for {
-			if cond.IsSet() {
-				bufioDXPort.WriteString("(")
-				testValue.Lock()
-				_, err := bufioDXPort.Write(testValue.V)
-				if err != nil {
-					log.Fatal(err)
-				}
-				testValue.Unlock()
-				bufioDXPort.WriteString(")")
-			}
-		}
-	}()
-	//
 	s := make(chan os.Signal, 1)
 	signal.Notify(s, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
 	<-s
 	log.Println("shutting down")
-	//_, err = dxPort.Write(HALT)
-	//if err != nil {
-	//	log.Fatal(err)
-	//}
-	//touches, err := InitializeTouches(1, TOUCH_FEEDBACK_DEFAULT)
-	//if err != nil {
-	//	log.Fatal("initialize", err)
-	//}
-	//fmt.Println(touches)
-	//ok, err := InjectTouchInput(uint32(len(touches)), touches)
-	//if err != nil {
-	//	log.Fatal(err)
-	//}
-	//fmt.Println(ok)
+	FETouchSerial.Write(HALT)
 }
