@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 )
 
 var (
@@ -14,30 +15,35 @@ var (
 	FinaleCOM = "COM23" // This depends on what port did you change in windows device manager
 
 	SerialMode = &serial.Mode{BaudRate: 9600, DataBits: 8}
-
-	DXP1TouchSerial = &DXTouch{}
-	//DXP2TouchSerial = &DXTouch{}
-	FETouchSerial = &FinaleTouch{}
 )
 
 func main() {
 	var err error
-	DXP1TouchSerial.Port, err = serial.Open(DXP1COM, SerialMode)
+	log.Println("Starting all com port listeners...")
+	FETouchSerial, err := NewFinaleTouch(FinaleCOM, SerialMode)
 	if err != nil {
-		log.Fatal(err) // TODO: make reconnect method
+		log.Fatal(FinaleCOM, err)
 	}
-	//DXP2TouchSerial.Port, err = serial.Open(DXP2COM, SerialMode)
-	FETouchSerial.Port, err = serial.Open(FinaleCOM, SerialMode)
-	if err != nil {
-		log.Fatal(err)
-	}
-	go FETouchSerial.Recv(DXP1TouchSerial)
-	go DXP1TouchSerial.Recv(FETouchSerial)
-	//go DXP2TouchSerial.Recv(FETouchSerial)
 
+	DXP1TouchSerial, err := NewDXTouch(DXP1COM, SerialMode, 1)
+	if err != nil {
+		log.Fatal(DXP1COM, err)
+	}
+
+	DXP2TouchSerial, err := NewDXTouch(DXP2COM, SerialMode, 1)
+	if err != nil {
+		log.Fatal(DXP2COM, err)
+	}
+	cmdChan := make(chan CMDInfo)
+	go FETouchSerial.Listen(DXP1TouchSerial, DXP2TouchSerial, cmdChan)
+	go DXP1TouchSerial.Listen(cmdChan)
+	go DXP2TouchSerial.Listen(cmdChan)
+
+	log.Println("Done! Good luck touchin'")
 	s := make(chan os.Signal, 1)
 	signal.Notify(s, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
 	<-s
 	log.Println("shutting down")
-	FETouchSerial.Write(HALT)
+	_, _ = FETouchSerial.Port.Write(HALT)
+	time.Sleep(1 * time.Millisecond)
 }
