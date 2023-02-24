@@ -42,6 +42,17 @@ const (
 	CMD_DX_Sens  = 'k' // {  }Touch sensitivity this is analog of
 )
 
+type DXInput struct {
+	Index int
+	Bit   uint8
+}
+
+type FEInput struct {
+	DXInput
+	Area1 DXInput
+	Area2 DXInput
+}
+
 var (
 	A1 = DXInput{1, 1}
 	A2 = DXInput{1, 2}
@@ -84,3 +95,31 @@ var (
 	E7 = DXInput{7, 4}
 	E8 = DXInput{7, 8}
 )
+
+var FEAreas = [4]map[uint8]FEInput{
+	{
+		1: {A1, D1, D2},
+		2: {B1, E1, E2}, // B1
+		4: {A2, D2, D3}, // A2
+		8: {B2, E2, E3}, // B2
+	},
+	{
+		1: {A3, D3, D4},
+		2: {B3, E3, E4},
+		4: {A4, D4, D5},
+		8: {B4, E4, E5},
+	},
+	{
+		1: {A5, D5, D6},
+		2: {B5, E5, E6},
+		4: {A6, D6, D7},
+		8: {B6, E6, E7},
+	},
+	{
+		1:  {A7, D7, D8},
+		2:  {B7, E7, E8},
+		4:  {A8, D8, D1},
+		8:  {B8, E8, E1},
+		16: {C1, C2, DXInput{}},
+	},
+}
