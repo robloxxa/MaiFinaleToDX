@@ -7,34 +7,40 @@ import (
 )
 
 type DXTouch struct {
-	serial.Port
+	Port        serial.Port
+	Num         int
+	Active      bool
+	CAreaSwitch bool
 }
 
-func (t *DXTouch) Recv(fe *FinaleTouch) {
+func NewDXTouch(portName string, serialMode *serial.Mode, playerNum int) (*DXTouch, error) {
+	port, err := serial.Open(portName, serialMode)
+	if err != nil {
+		return nil, err
+	}
+	return &DXTouch{Num: playerNum, Port: port}, nil
+}
+
+func (t *DXTouch) Listen(cmdChan chan CMDInfo) {
 	buf := make([]byte, 6)
 
 	for {
-		_, err := io.ReadFull(t, buf)
+		_, err := io.ReadFull(t.Port, buf)
 		if err != nil {
 			log.Fatal(err)
 		}
-		log.Printf("%q %v\n", buf, buf[1:5])
-
-		switch buf[3] {
-		case CMD_HALT:
-			fe.Write(HALT)
-		case CMD_STAT:
-			fe.Write(STAT)
-		case CMD_DX_RSET:
-
-		case CMD_DX_Ratio:
-			buf[0] = '('
-			buf[5] = ')'
-			_, _ = t.Write(buf)
-		case CMD_DX_Sens:
-			buf[0] = '('
-			buf[5] = ')'
-			_, _ = t.Write(buf)
+		tempBuf := make([]byte, 6)
+		copy(tempBuf, buf)
+		cmdChan <- CMDInfo{
+			P:    t,
+			Data: tempBuf,
 		}
+	}
+}
+
+func (t *DXTouch) Write(buf []byte) {
+	_, err := t.Port.Write(buf)
+	if err != nil {
+		t.Active = false
 	}
 }
