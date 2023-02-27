@@ -4,6 +4,7 @@ import (
 	"flag"
 	"go.bug.st/serial"
 	"log"
+	"maiFinaleToDX/jvs"
 	"maiFinaleToDX/touch"
 	"os"
 	"os/signal"
@@ -17,15 +18,21 @@ var (
 	DXP2COM       = "COM8"
 	FinaleCOM     = "COM23" // This depends on what port did you change in Windows device manager
 
+	JVSDisabled = false
+	JVSCom      = "COM2"
+
 	TouchSerialMode = &serial.Mode{BaudRate: 9600, DataBits: 8}
 	JVSSerialMode   = &serial.Mode{BaudRate: 115200, DataBits: 8}
 )
 
 func init() {
 	flag.StringVar(&DXP1COM, "dxP1TouchPort", "COM6", "Specify Maimai Deluxe Touch Screen COM port for player 1. Default is COM6")
-	flag.StringVar(&DXP2COM, "dxP1TouchPort", "COM8", "Specify Maimai Deluxe Touch Screen COM port for player 2. Default is COM8")
+	flag.StringVar(&DXP2COM, "dxP2TouchPort", "COM8", "Specify Maimai Deluxe Touch Screen COM port for player 2. Default is COM8")
 	flag.StringVar(&FinaleCOM, "finaleTouchPort", "COM23", "Specify Maimai Finale Touch Screen COM port. Default is COM23")
 	flag.BoolVar(&TouchDisabled, "disableTouch", false, "Disable touch screen features")
+
+	flag.BoolVar(&JVSDisabled, "disableJVS", false, "Disable JVS reading")
+	flag.StringVar(&JVSCom, "jvsPort", "COM2", "Specify Maimai Finale JVS port")
 }
 
 func main() {
@@ -58,6 +65,14 @@ func main() {
 		go DXP2TouchSerial.Listen(cmdChan)
 
 		log.Println("Touch Screen initialized, good luck touching")
+	}
+
+	if !JVSDisabled {
+		jvsFe, err := jvs.NewFinaleJVS(JVSCom, JVSSerialMode)
+		if err != nil {
+			log.Fatal(err)
+		}
+		go jvsFe.Listen()
 	}
 
 	s := make(chan os.Signal, 1)
