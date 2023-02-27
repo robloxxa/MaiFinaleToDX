@@ -30,7 +30,7 @@ func main() {
 		log.Fatal(DXP1COM, err)
 	}
 
-	DXP2TouchSerial, err := NewDXTouch(DXP2COM, SerialMode, 1)
+	DXP2TouchSerial, err := NewDXTouch(DXP2COM, SerialMode, 2)
 	if err != nil {
 		log.Fatal(DXP2COM, err)
 	}

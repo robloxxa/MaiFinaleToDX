@@ -10,7 +10,7 @@ type DXTouch struct {
 	Port        serial.Port
 	Num         int
 	Active      bool
-	CAreaSwitch bool
+	CAreaSwitch DXInput
 }
 
 func NewDXTouch(portName string, serialMode *serial.Mode, playerNum int) (*DXTouch, error) {

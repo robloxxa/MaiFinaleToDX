@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/tevino/abool/v2"
+	"fmt"
 	"go.bug.st/serial"
 	"log"
 )
@@ -17,8 +17,6 @@ type FinaleTouch struct {
 
 	P1Active bool
 	P2Active bool
-
-	DataReceived abool.AtomicBool
 }
 
 func NewFinaleTouch(portName string, portMode *serial.Mode) (*FinaleTouch, error) {
@@ -30,9 +28,9 @@ func NewFinaleTouch(portName string, portMode *serial.Mode) (*FinaleTouch, error
 }
 
 func (t *FinaleTouch) Listen(p1 *DXTouch, p2 *DXTouch, cmdChan chan CMDInfo) {
-	t.DataReceived.UnSet()
 	feBuf := []byte{'(', '@', '@', '@', '@', '@', '@', '@', '@', '@', '@', '@', '@', ')'} // Length 14
 	dxBuf := []byte{'(', 0, 0, 0, 0, 0, 0, 0, ')'}
+
 	_, _ = t.Port.Write(STAT)
 	for {
 		select {
@@ -55,11 +53,8 @@ func (t *FinaleTouch) Listen(p1 *DXTouch, p2 *DXTouch, cmdChan chan CMDInfo) {
 				cmd.P.Write(cmd.Data)
 			}
 		default:
-			// This looks very weird (for me at least). But it's the only way to read fast without blocking
-			// The only reason I am doing this - minimum serial.Port.SetReadDelay, which is 15 ms (windows limits). Imo it is big
-			// Maybe go just isn't the best language for this :]
-
 			n, err := t.Port.Read(feBuf)
+
 			if err != nil {
 				log.Fatal(err)
 			}
@@ -77,19 +72,20 @@ func (t *FinaleTouch) Listen(p1 *DXTouch, p2 *DXTouch, cmdChan chan CMDInfo) {
 				n += n2
 			}
 
-			log.Printf("FE: %v\n", feBuf)
+			log.Printf("FE: %v ", feBuf)
+
 			if p1.Active {
 				convertFEInputToDX(feBuf, dxBuf, p1)
-				log.Printf("DXP1: %v\n", dxBuf)
+				fmt.Printf("DXP1: %v ", dxBuf)
 				p1.Write(dxBuf)
 			}
 
 			if p2.Active {
 				convertFEInputToDX(feBuf, dxBuf, p2)
-				log.Printf("DXP2: %v\n", dxBuf)
+				fmt.Printf("DXP2: %v ", dxBuf)
 				p2.Write(dxBuf)
 			}
-
+			fmt.Print("\n")
 		}
 	}
 }
@@ -112,19 +108,6 @@ func convertFEInputToDX(feBuffer, dxBuffer []byte, p *DXTouch) {
 			if v&k != k {
 				continue
 			}
-
-			if k == 16 {
-				// Little workaround for C1/C2 area so players will be able to switch mapping style in dx song selection
-				if p.CAreaSwitch {
-					dxBuffer[ar.Index] |= ar.Bit
-					p.CAreaSwitch = false
-				} else {
-					dxBuffer[ar.Index] |= ar.Area1.Bit
-					p.CAreaSwitch = true
-				}
-				continue
-			}
-
 			dxBuffer[ar.Index] |= ar.Bit
 			dxBuffer[ar.Area1.Index] |= ar.Area1.Bit
 			dxBuffer[ar.Area2.Index] |= ar.Area2.Bit
