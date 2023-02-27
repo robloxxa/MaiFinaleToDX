@@ -1,4 +1,4 @@
-module maimaiSensor
+module maiFinaleToDX
 
 go 1.19
 

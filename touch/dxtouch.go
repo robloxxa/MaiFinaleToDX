@@ -1,4 +1,4 @@
-package main
+package touch
 
 import (
 	"go.bug.st/serial"
@@ -7,10 +7,9 @@ import (
 )
 
 type DXTouch struct {
-	Port        serial.Port
-	Num         int
-	Active      bool
-	CAreaSwitch DXInput
+	Port   serial.Port
+	Num    int
+	Active bool
 }
 
 func NewDXTouch(portName string, serialMode *serial.Mode, playerNum int) (*DXTouch, error) {

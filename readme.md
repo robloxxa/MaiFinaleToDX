@@ -2,10 +2,6 @@
 Program for Serial I/F BD Touchpanel Gunze which is used in original Maimai Finale Cabinet.
 
 
-
-
-
-
 ## Build
 ```shell
 git clone https://github.com/robloxxa/MaiFinaleTouchToDX

@@ -1,7 +1,6 @@
-package main
+package touch
 
 import (
-	"fmt"
 	"go.bug.st/serial"
 	"log"
 )
@@ -72,20 +71,16 @@ func (t *FinaleTouch) Listen(p1 *DXTouch, p2 *DXTouch, cmdChan chan CMDInfo) {
 				n += n2
 			}
 
-			log.Printf("FE: %v ", feBuf)
-
 			if p1.Active {
 				convertFEInputToDX(feBuf, dxBuf, p1)
-				fmt.Printf("DXP1: %v ", dxBuf)
 				p1.Write(dxBuf)
 			}
 
 			if p2.Active {
 				convertFEInputToDX(feBuf, dxBuf, p2)
-				fmt.Printf("DXP2: %v ", dxBuf)
 				p2.Write(dxBuf)
 			}
-			fmt.Print("\n")
+
 		}
 	}
 }

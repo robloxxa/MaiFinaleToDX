@@ -1,4 +1,4 @@
-module maimaisensor/dummyFinaleTouch
+module maiFinaleToDX/dummyFinaleTouch
 
 go 1.19
 
