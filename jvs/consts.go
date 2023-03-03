@@ -22,3 +22,9 @@ const (
 	CMD_CAPABILITIES    = 0x14
 	CMD_CONVEY_ID       = 0x15
 )
+
+const (
+	CMD_READ_DIGITAL = 0x20
+	CMD_READ_COIN    = 0x21
+	CMD_READ_ANALOG  = 0x22
+)
