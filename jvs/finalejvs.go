@@ -2,6 +2,7 @@ package jvs
 
 import (
 	"fmt"
+	"github.com/go-vgo/robotgo"
 	"go.bug.st/serial"
 	"io"
 	"log"
@@ -11,6 +12,10 @@ import (
 type JVS struct {
 	Port        serial.Port
 	Initialized bool
+
+	writeBuf []byte
+	readBuf  []byte
+	dataBuf  [256]byte
 }
 
 func NewFinaleJVS(portName string, mode *serial.Mode) (*JVS, error) {
@@ -19,7 +24,9 @@ func NewFinaleJVS(portName string, mode *serial.Mode) (*JVS, error) {
 		return nil, err
 	}
 	return &JVS{
-		Port: port,
+		Port:     port,
+		readBuf:  make([]byte, 1),
+		writeBuf: make([]byte, 1),
 	}, nil
 }
 
@@ -35,91 +42,156 @@ func (j *JVS) Listen(board uint8) {
 	j.Cmd(board, []byte{CMD_CAPABILITIES})
 
 	for {
-		j.Cmd(board, []byte{CMD_READ_DIGITAL, 0x02, 0x02})
+		buf, _ := j.Cmd(board, []byte{CMD_READ_DIGITAL, 0x02, 0x02})
+		for _, v := range buf {
+			fmt.Printf("%08b ", v)
+		}
+		fmt.Print("\n")
+		//readSwitches(buf)
+	}
+}
+
+func readSwitches(buf []byte) {
+	if buf[0]&128 == 128 {
+		robotgo.KeyDown(P2_START)
+	} else {
+		robotgo.KeyUp(P2_START)
+	}
+
+	for i, b := range buf[2:6] {
+		for k, v := range ButtonInputs[i] {
+			if b&k == k {
+				robotgo.KeyUp(v)
+			} else {
+				robotgo.KeyDown(v)
+			}
+		}
 	}
 }
 
 func (j *JVS) reset() {
-	j.Write(BROADCAST, []byte{CMD_RESET, CMD_RESET_ARG}, 2)
+	j.WritePacket(BROADCAST, []byte{CMD_RESET, CMD_RESET_ARG}, 2)
 }
 
-var (
-	syncBuf = make([]byte, 1)
-	infoBuf = make([]byte, 2)
-	dataBuf = make([]byte, 512)
-)
-
-func (j *JVS) Cmd(dest byte, data []byte) {
-	j.Write(dest, data, uint8(len(data)))
+func (j *JVS) Cmd(dest byte, data []byte) ([]byte, uint8) {
+	var counter uint8
+	j.WritePacket(dest, data, uint8(len(data)))
 
 	for {
-		_, err := io.ReadFull(j.Port, syncBuf)
-		if err != nil {
-			log.Println(err)
-			return
-		}
-		if syncBuf[0] != SYNC {
-			fmt.Println("Not sync")
+		// TODO: We could possibly stuck here, need some testing
+		if j.ReadByte() != SYNC {
 			continue
 		}
-		_, err = io.ReadFull(j.Port, syncBuf)
-		if err != nil {
-			log.Println(err)
-			return
-		}
-		if syncBuf[0] != 00 {
-			fmt.Println("not 00")
+
+		if j.ReadByte() != 00 {
+			// Not for us, continuing
 			continue
 		}
 		break
 	}
-	_, err := io.ReadFull(j.Port, infoBuf)
-	if err != nil {
-		log.Println(err)
-		return
-	}
-	fmt.Printf("Dest %X. Size: %d. Status: %d. Data: ", dest, infoBuf[0], infoBuf[1])
-	n, err := io.ReadFull(j.Port, dataBuf[:infoBuf[0]-1])
-	if err != nil {
 
-		log.Println(err)
-		return
+	size := j.ReadByte()
+	status := j.ReadByte()
+
+	if status == 0x01 {
+		log.Fatal("got a wrong status:", status)
 	}
-	for _, v := range dataBuf[:n] {
-		fmt.Printf("%X ", v)
+
+	for counter < size {
+		b := j.ReadByte()
+
+		if b == MARK {
+			b = j.ReadByte() + 1
+		}
+
+		j.dataBuf[counter] = b
+		counter++
 	}
-	fmt.Print("\n")
+
+	return j.dataBuf[:counter], status
 }
 
-var writeBuf = make([]byte, 512)
+//func (j *JVS) Cmd(dest byte, data []byte) {
+//	j.WritePacket(dest, data, uint8(len(data)))
+//
+//	for {
+//		_, err := io.ReadFull(j.Port, syncBuf)
+//		if err != nil {
+//			log.Println(err)
+//			return
+//		}
+//		if syncBuf[0] != SYNC {
+//			fmt.Println("Not sync")
+//			continue
+//		}
+//		_, err = io.ReadFull(j.Port, syncBuf)
+//		if err != nil {
+//			log.Println(err)
+//			return
+//		}
+//		if syncBuf[0] != 00 {
+//			fmt.Println("not 00")
+//			continue
+//		}
+//		break
+//	}
+//	_, err := io.ReadFull(j.Port, infoBuf)
+//	if err != nil {
+//		log.Println(err)
+//		return
+//	}
+//	fmt.Printf("Dest %X. Size: %d. Status: %d. Data: ", dest, infoBuf[0], infoBuf[1])
+//	n, err := io.ReadFull(j.Port, dataBuf[:infoBuf[0]-1])
+//	if err != nil {
+//
+//		log.Println(err)
+//		return
+//	}
+//	for _, v := range dataBuf[:n] {
+//		fmt.Printf("%X ", v)
+//	}
+//	fmt.Print("\n")
+//}
 
-func (j *JVS) Write(dest byte, data []byte, size uint8) {
-	writeBuf[0] = SYNC
-	writeBuf[1] = dest
-	writeBuf[2] = size + 1
+func (j *JVS) WritePacket(dest byte, data []byte, size uint8) {
+
+	j.WriteByte(dest)
+	j.WriteByte(size + 1)
+
 	wI := 3
 	sum := dest + size + 1
+
 	for i := uint8(0); i < size; i++ {
 		if data[i] == SYNC || data[i] == MARK {
-			writeBuf[wI] = MARK
-			writeBuf[wI+1] = data[i] - 1
-			wI += 2
+			j.WriteByte(MARK)
+			j.WriteByte(data[i] - 1)
 		} else {
-			writeBuf[wI] = data[i]
-			wI++
+			j.WriteByte(data[i])
 		}
+		wI++
 		sum = uint8(int(sum+data[i]) % 256)
 	}
-	writeBuf[wI] = sum
-	wI++
+	j.WriteByte(sum)
 	//fmt.Print("SENT: ")
 	//for i := range writeBuf[:wI] {
 	//	fmt.Printf("%X ", writeBuf[i])
 	//}
 	//fmt.Print("\n")
-	_, err := j.Port.Write(writeBuf[:wI])
+
+}
+
+func (j *JVS) ReadByte() byte {
+	_, err := io.ReadFull(j.Port, j.readBuf)
 	if err != nil {
 		log.Fatal(err)
 	}
+	return j.readBuf[0]
+}
 
+func (j *JVS) WriteByte(b byte) {
+	j.writeBuf[0] = b
+	_, err := j.Port.Write(j.writeBuf)
+	if err != nil {
+		log.Fatal(err)
+	}
 }
