@@ -1,21 +1,22 @@
 package jvs
 
 import (
-	"fmt"
-	"github.com/go-vgo/robotgo"
+	"bufio"
 	"go.bug.st/serial"
 	"io"
 	"log"
+	"maiFinaleToDX/keyboard"
 	"time"
 )
 
 type JVS struct {
-	Port        serial.Port
+	Port serial.Port
+	*bufio.Writer
 	Initialized bool
 
 	writeBuf []byte
 	readBuf  []byte
-	dataBuf  [256]byte
+	dataBuf  [1024]byte
 }
 
 func NewFinaleJVS(portName string, mode *serial.Mode) (*JVS, error) {
@@ -23,14 +24,17 @@ func NewFinaleJVS(portName string, mode *serial.Mode) (*JVS, error) {
 	if err != nil {
 		return nil, err
 	}
+	w := bufio.NewWriter(port)
 	return &JVS{
 		Port:     port,
+		Writer:   w,
 		readBuf:  make([]byte, 1),
 		writeBuf: make([]byte, 1),
 	}, nil
 }
 
 func (j *JVS) Listen(board uint8) {
+	keyboard.KeyDown(keyboard.VK_NUMLOCK)
 	j.reset()
 	j.reset()
 	time.Sleep(1 * time.Second)
@@ -43,27 +47,32 @@ func (j *JVS) Listen(board uint8) {
 
 	for {
 		buf, _ := j.Cmd(board, []byte{CMD_READ_DIGITAL, 0x02, 0x02})
-		for _, v := range buf {
-			fmt.Printf("%08b ", v)
-		}
-		fmt.Print("\n")
-		//readSwitches(buf)
+		//for _, v := range buf[1:6] {
+		//	fmt.Printf("%08b ", v)
+		//}
+		//fmt.Print("\n")
+		readSwitches(buf)
 	}
 }
 
 func readSwitches(buf []byte) {
-	if buf[0]&128 == 128 {
-		robotgo.KeyDown(P2_START)
+	if buf[1]&128 == 128 {
+		keyboard.KeyDown(P1_START)
 	} else {
-		robotgo.KeyUp(P2_START)
+		keyboard.KeyUp(P1_START)
+	}
+	if buf[2]&64 == 64 {
+		keyboard.KeyDown(P2_START)
+	} else {
+		keyboard.KeyUp(P2_START)
 	}
 
 	for i, b := range buf[2:6] {
 		for k, v := range ButtonInputs[i] {
 			if b&k == k {
-				robotgo.KeyUp(v)
+				keyboard.KeyUp(v)
 			} else {
-				robotgo.KeyDown(v)
+				keyboard.KeyDown(v)
 			}
 		}
 	}
@@ -93,13 +102,12 @@ func (j *JVS) Cmd(dest byte, data []byte) ([]byte, uint8) {
 	size := j.ReadByte()
 	status := j.ReadByte()
 
-	if status == 0x01 {
+	if status != 0x01 {
 		log.Fatal("got a wrong status:", status)
 	}
 
-	for counter < size {
+	for counter < size-1 {
 		b := j.ReadByte()
-
 		if b == MARK {
 			b = j.ReadByte() + 1
 		}
@@ -154,7 +162,7 @@ func (j *JVS) Cmd(dest byte, data []byte) ([]byte, uint8) {
 //}
 
 func (j *JVS) WritePacket(dest byte, data []byte, size uint8) {
-
+	j.WriteByte(SYNC)
 	j.WriteByte(dest)
 	j.WriteByte(size + 1)
 
@@ -172,6 +180,10 @@ func (j *JVS) WritePacket(dest byte, data []byte, size uint8) {
 		sum = uint8(int(sum+data[i]) % 256)
 	}
 	j.WriteByte(sum)
+	err := j.Flush()
+	if err != nil {
+		log.Fatal(err)
+	}
 	//fmt.Print("SENT: ")
 	//for i := range writeBuf[:wI] {
 	//	fmt.Printf("%X ", writeBuf[i])
@@ -186,12 +198,4 @@ func (j *JVS) ReadByte() byte {
 		log.Fatal(err)
 	}
 	return j.readBuf[0]
-}
-
-func (j *JVS) WriteByte(b byte) {
-	j.writeBuf[0] = b
-	_, err := j.Port.Write(j.writeBuf)
-	if err != nil {
-		log.Fatal(err)
-	}
 }

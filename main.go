@@ -5,7 +5,6 @@ import (
 	"go.bug.st/serial"
 	"log"
 	"maiFinaleToDX/jvs"
-	"maiFinaleToDX/keyboard"
 	"maiFinaleToDX/touch"
 	"os"
 	"os/signal"
@@ -75,11 +74,6 @@ func main() {
 		}
 		go jvsFe.Listen(01)
 	}
-	time.Sleep(2 * time.Second)
-
-	keyboard.PressKey(keyboard.VK_B)
-	time.Sleep(1 * time.Second)
-	keyboard.ReleaseKey(keyboard.VK_B)
 
 	s := make(chan os.Signal, 1)
 	signal.Notify(s, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
