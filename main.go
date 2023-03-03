@@ -19,7 +19,7 @@ var (
 	FinaleCOM     = "COM23" // This depends on what port did you change in Windows device manager
 
 	JVSDisabled = false
-	JVSCom      = "COM2"
+	JVSCom      = "COM24"
 
 	TouchSerialMode = &serial.Mode{BaudRate: 9600, DataBits: 8}
 	JVSSerialMode   = &serial.Mode{BaudRate: 115200, DataBits: 8}
@@ -32,7 +32,7 @@ func init() {
 	flag.BoolVar(&TouchDisabled, "disableTouch", false, "Disable touch screen features")
 
 	flag.BoolVar(&JVSDisabled, "disableJVS", false, "Disable JVS reading")
-	flag.StringVar(&JVSCom, "jvsPort", "COM2", "Specify Maimai Finale JVS port")
+	flag.StringVar(&JVSCom, "jvsPort", "COM24", "Specify Maimai Finale JVS port")
 }
 
 func main() {
