@@ -12,7 +12,6 @@ use clap::Parser;
 
 mod helper_funcs;
 mod jvs;
-mod reader_proxy;
 mod touch;
 
 #[derive(Parser, Debug)]
