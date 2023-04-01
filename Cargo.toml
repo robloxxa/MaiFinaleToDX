@@ -1,5 +1,5 @@
 [package]
-name = "Maifinaletodxrust"
+name = "re2_to_alls_wrapper"
 version = "0.1.0"
 edition = "2021"
 
@@ -10,3 +10,7 @@ serialport = "4.2.0"
 clap = { features = ["derive"] }
 crossbeam-channel = "0.5.7"
 toml = "0.7.3"
+winapi = { version = "0.3.9", features = ["winuser"] }
+serde = { version = "1.0.158", features = ["derive"] }
+flexi_logger = "0.25.3"
+log = "0.4.17"
