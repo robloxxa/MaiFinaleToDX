@@ -1,4 +1,3 @@
-use std::ptr::write;
 use std::time::{Duration, Instant};
 
 use serialport::SerialPort;
