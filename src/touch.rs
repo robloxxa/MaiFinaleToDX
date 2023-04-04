@@ -5,6 +5,7 @@
 // existing ones (see alls_touch_areas crate)
 // So if you press, for example, B1 area in Maimai DX, it will also press E1 and E2 (which is is close to B1)
 
+use crate::config::{Config, Settings};
 use std::thread;
 use std::thread::JoinHandle;
 
@@ -19,7 +20,7 @@ pub struct AllsMessageCmd {
     cmd: AllsTouchMasterCommand,
 }
 
-pub fn spawn_thread(args: &super::Arguments) -> (JoinHandle<()>, JoinHandle<()>) {
+pub fn spawn_thread(args: &Settings) -> (JoinHandle<()>, JoinHandle<()>) {
     let (sender, receiver) = crossbeam_channel::bounded::<AllsMessageCmd>(10);
 
     let mut alls_p1_touch =

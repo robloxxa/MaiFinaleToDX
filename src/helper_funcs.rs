@@ -49,7 +49,7 @@ impl Keyboard {
         }
     }
 
-    pub fn key_down(&mut self, key_code: c_int) {
+    pub fn key_down(&mut self, &key_code: &c_int) {
         match self.pressed_keys.get(&key_code) {
             Some(false) | None => {
                 let _ = Self::send_input(0, key_code as WORD, 0);
@@ -59,7 +59,7 @@ impl Keyboard {
         }
     }
 
-    pub fn key_up(&mut self, key_code: c_int) {
+    pub fn key_up(&mut self, &key_code: &c_int) {
         match self.pressed_keys.get(&key_code) {
             Some(true) => {
                 let _ = Self::send_input(KEYEVENTF_KEYUP, key_code as WORD, 0);
