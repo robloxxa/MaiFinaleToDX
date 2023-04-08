@@ -1,4 +1,5 @@
 use std::io::{Read, Write};
+use std::ops::DerefMut;
 use std::time::Duration;
 use std::{io, thread};
 
@@ -10,7 +11,8 @@ use winapi::um::winuser::{
 };
 
 use crate::config;
-use crate::helper_funcs::{bit_read, Keyboard};
+use crate::helper_funcs::{bit_read, read_byte, SerialExt};
+use crate::keyboard::Keyboard;
 
 static SYNC: u8 = 0xE0;
 static MARK: u8 = 0xD0;
@@ -44,10 +46,9 @@ pub struct RingEdge2 {
 impl RingEdge2 {
     pub fn new(
         port_name: String,
-        baud_rate: u32,
         input_settings: config::Input,
     ) -> Result<Self, serialport::Error> {
-        let mut port = serialport::new(port_name, baud_rate).open()?;
+        let mut port = serialport::new(port_name, 115_200).open()?;
         port.set_timeout(Duration::from_millis(0))?;
         let input_map = map_input_settings(&input_settings);
         Ok(Self {
@@ -80,34 +81,28 @@ impl RingEdge2 {
         Ok(())
     }
 
-    fn read_byte(&mut self) -> io::Result<u8> {
-        let mut read_buf: [u8; 1] = [0];
-        self.port.read_exact(read_buf.as_mut())?;
-        return Ok(read_buf[0]);
-    }
-
     fn cmd(&mut self, dest: u8, data: &[u8]) -> io::Result<(usize, u8)> {
         self.write_packet(dest, data)?;
 
         loop {
-            if self.read_byte()? != SYNC {
+            if self.port.read_byte()? != SYNC {
                 continue;
             }
-            if self.read_byte()? != 00 {
+            if self.port.read_byte()? != 00 {
                 continue;
             }
             break;
         }
 
-        let size = self.read_byte()? as usize;
-        let status = self.read_byte()?;
+        let size = self.port.read_byte()? as usize;
+        let status = self.port.read_byte()?;
 
         let mut counter: usize = 0;
 
         while counter < size - 1 {
-            let mut b = self.read_byte()?;
+            let mut b = self.port.read_byte()?;
             if b == MARK {
-                b = self.read_byte()? + 1;
+                b = self.port.read_byte()? + 1;
             }
             self.data_buffer[counter] = b;
             counter += 1;

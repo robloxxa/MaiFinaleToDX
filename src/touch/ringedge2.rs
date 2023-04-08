@@ -17,11 +17,10 @@ pub struct RingEdge2 {
 impl RingEdge2 {
     pub fn new(
         port_name: String,
-        baud_rate: u32,
         alls_p1_port: Box<dyn SerialPort>,
         alls_p2_port: Box<dyn SerialPort>,
     ) -> Result<Self, serialport::Error> {
-        let mut port = serialport::new(port_name, baud_rate).open()?;
+        let mut port = serialport::new(port_name, 9600).open()?;
         port.set_timeout(Duration::from_millis(1))?;
 
         Ok(Self {
@@ -33,7 +32,6 @@ impl RingEdge2 {
     }
 
     pub fn read(&mut self) {
-        let read_timer = Instant::now();
         if let Err(err) = self.port.read_exact(self.read_buffer[0..6].as_mut()) {
             if err.kind() == std::io::ErrorKind::TimedOut {
                 return;
@@ -48,8 +46,6 @@ impl RingEdge2 {
         if let Err(err) = self.port.read_exact(self.read_buffer[6..14].as_mut()) {
             panic!("{}", err);
         }
-        let read_timer_elapsed = read_timer.elapsed();
-        let write_timer = Instant::now();
         if self.alls_active[0] {
             Self::send_to_alls(self.read_buffer[1..5].as_mut(), self.alls_ports[0].as_mut());
         }
@@ -60,8 +56,6 @@ impl RingEdge2 {
                 self.alls_ports[1].as_mut(),
             );
         }
-        let write_timer_elapsed = write_timer.elapsed();
-        println!("{:?}, {:?}", read_timer_elapsed, write_timer_elapsed);
     }
 
     pub fn parse_command_from_alls(&mut self, msg: AllsMessageCmd) {

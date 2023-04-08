@@ -1,5 +1,6 @@
 use std::time::Duration;
 
+use crate::serial;
 use serialport::SerialPort;
 
 use crate::touch::AllsMessageCmd;
@@ -49,7 +50,7 @@ impl Alls {
     ) -> Result<Self, serialport::Error> {
         let mut port = serialport::new(port_name, baud_rate).open()?;
         port.set_timeout(Duration::from_millis(1))?;
-
+        
         Ok(Self {
             port,
             player_num,

@@ -7,11 +7,12 @@ use log::{debug, error, info, warn};
 use std::fs;
 use std::fs::File;
 use std::io::Read;
-use std::time::Instant;
 
+mod card_reader;
 mod config;
 mod helper_funcs;
 mod jvs;
+mod keyboard;
 mod touch;
 
 fn main() {
