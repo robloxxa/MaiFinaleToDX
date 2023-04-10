@@ -1,9 +1,9 @@
-use std::io::{Read, Write};
-use std::ops::DerefMut;
 use std::time::Duration;
 use std::{io, thread};
+use std::io::Read;
+use std::thread::JoinHandle;
 
-use log::info;
+use log::{debug, info};
 use serialport::SerialPort;
 use winapi::ctypes::c_int;
 use winapi::um::winuser::{
@@ -11,7 +11,8 @@ use winapi::um::winuser::{
 };
 
 use crate::config;
-use crate::helper_funcs::{bit_read, read_byte, SerialExt};
+use crate::config::{Config, Settings};
+use crate::helper_funcs::{bit_read, SerialExt};
 use crate::keyboard::Keyboard;
 
 static SYNC: u8 = 0xE0;
@@ -30,7 +31,7 @@ static CMD_CAPABILITIES: u8 = 0x14;
 static CMD_CONVEY_ID: u8 = 0x15;
 static CMD_READ_DIGITAL: u8 = 0x20;
 
-type InputMapping = [[Option<c_int>; 7]; 4];
+type InputMapping = [[Option<c_int>; 8]; 4];
 
 pub struct RingEdge2 {
     pub port: Box<dyn SerialPort>,
@@ -49,7 +50,7 @@ impl RingEdge2 {
         input_settings: config::Input,
     ) -> Result<Self, serialport::Error> {
         let mut port = serialport::new(port_name, 115_200).open()?;
-        port.set_timeout(Duration::from_millis(0))?;
+        port.set_timeout(Duration::from_millis(1000))?;
         let input_map = map_input_settings(&input_settings);
         Ok(Self {
             port,
@@ -63,7 +64,7 @@ impl RingEdge2 {
 
     pub fn write_packet(&mut self, dest: u8, data: &[u8]) -> io::Result<()> {
         let size: u8 = data.len() as u8 + 1;
-        let mut sum = (dest + size) as u32;
+        let mut sum = dest as u32 + size as u32;
 
         self.port.write(&[SYNC, dest, size])?;
 
@@ -83,20 +84,18 @@ impl RingEdge2 {
 
     fn cmd(&mut self, dest: u8, data: &[u8]) -> io::Result<(usize, u8)> {
         self.write_packet(dest, data)?;
-
+        dbg!("read packet");
         loop {
-            if self.port.read_byte()? != SYNC {
-                continue;
-            }
-            if self.port.read_byte()? != 00 {
+            if dbg!(self.port.read_byte()?) != SYNC {
                 continue;
             }
             break;
         }
-
+        dbg!("loop gone");
+        self.port.read_byte()?;
         let size = self.port.read_byte()? as usize;
         let status = self.port.read_byte()?;
-
+        dbg!("read size and status");
         let mut counter: usize = 0;
 
         while counter < size - 1 {
@@ -107,7 +106,7 @@ impl RingEdge2 {
             self.data_buffer[counter] = b;
             counter += 1;
         }
-
+        dbg!("read byte data");
         Ok((counter, status))
     }
 
@@ -174,25 +173,27 @@ impl RingEdge2 {
     fn read_digital(&mut self, board: u8) {
         let (size, _) = self.cmd(board, &[CMD_READ_DIGITAL, 0x02, 0x02]).unwrap();
         let data = &self.data_buffer[..size];
+
+
+        if bit_read(&data[2], 6) {
+            self.keyboard.key_down(&self.test_key);
+        } else {
+            self.keyboard.key_up(&self.test_key);
+        }
+
         if bit_read(&data[1], 7) {
             self.keyboard.key_down(&self.service_key);
         } else {
             self.keyboard.key_up(&self.service_key);
         }
 
-        if bit_read(&data[1], 6) {
-            self.keyboard.key_down(&self.test_key);
-        } else {
-            self.keyboard.key_up(&self.test_key);
-        }
-
-        for (i, bit) in data[2..6].iter().enumerate() {
-            for bit_pos in 0..5 {
+        for (i, bit) in data[2..=5].iter().enumerate() {
+            for bit_pos in 0..=7 {
                 if let Some(key) = self.input_map[i][bit_pos] {
-                    if bit_read(bit, bit_pos) {
-                        self.keyboard.key_up(&key);
-                    } else {
+                    if !bit_read(bit, bit_pos) {
                         self.keyboard.key_down(&key);
+                    } else {
+                        self.keyboard.key_up(&key);
                     }
                 }
             }
@@ -204,6 +205,7 @@ fn map_input_settings(settings: &config::Input) -> InputMapping {
     [
         [
             Some(settings.p1_btn3),
+            None,
             Some(settings.p1_btn1),
             Some(settings.p1_btn2),
             None,
@@ -214,6 +216,7 @@ fn map_input_settings(settings: &config::Input) -> InputMapping {
         [
             None,
             None,
+            None,
             Some(settings.p1_btn8),
             Some(settings.p1_btn7),
             Some(settings.p1_btn6),
@@ -222,6 +225,7 @@ fn map_input_settings(settings: &config::Input) -> InputMapping {
         ],
         [
             Some(settings.p2_btn3),
+            None,
             Some(settings.p2_btn1),
             Some(settings.p2_btn2),
             None,
@@ -230,6 +234,7 @@ fn map_input_settings(settings: &config::Input) -> InputMapping {
             None,
         ],
         [
+            None,
             None,
             None,
             Some(settings.p2_btn8),
@@ -241,4 +246,15 @@ fn map_input_settings(settings: &config::Input) -> InputMapping {
     ]
 }
 
-pub fn spawn_thread() {}
+pub fn spawn_thread(args: &Config) -> JoinHandle<()> {
+    let mut jvs = RingEdge2::new(
+        args.settings.jvs_re2_com.clone(),
+        args.input.clone())
+        .unwrap();
+    thread::spawn(move || {
+        jvs.init(1).unwrap();
+        loop {
+            jvs.read_digital(1)
+        }
+    })
+}
