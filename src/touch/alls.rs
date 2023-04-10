@@ -1,12 +1,11 @@
 use std::time::Duration;
 
-use crate::serial;
 use serialport::SerialPort;
 
 use crate::touch::AllsMessageCmd;
 
-#[derive(Debug)]
 #[repr(u8)]
+#[derive(Debug)]
 pub enum AllsTouchMasterCommand {
     // { R S E T } Tells Touchscreen to reset, have no idea what to do with it
     Reset = b'E',
@@ -44,11 +43,10 @@ pub struct Alls {
 impl Alls {
     pub fn new(
         port_name: String,
-        baud_rate: u32,
         player_num: usize,
         sender_channel: crossbeam_channel::Sender<AllsMessageCmd>,
     ) -> Result<Self, serialport::Error> {
-        let mut port = serialport::new(port_name, baud_rate).open()?;
+        let mut port = serialport::new(port_name, 115_200).open()?;
         port.set_timeout(Duration::from_millis(1))?;
         
         Ok(Self {

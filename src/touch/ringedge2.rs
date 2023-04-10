@@ -1,4 +1,6 @@
+use std::io::Write;
 use std::time::{Duration, Instant};
+use log::debug;
 
 use serialport::SerialPort;
 
@@ -14,6 +16,12 @@ pub struct RingEdge2 {
     pub alls_active: [bool; 2],
 }
 
+impl Drop for RingEdge2 {
+    fn drop(&mut self) {
+        self.port.write("{HALT}".as_bytes()).expect("");
+    }
+}
+
 impl RingEdge2 {
     pub fn new(
         port_name: String,
@@ -21,13 +29,13 @@ impl RingEdge2 {
         alls_p2_port: Box<dyn SerialPort>,
     ) -> Result<Self, serialport::Error> {
         let mut port = serialport::new(port_name, 9600).open()?;
-        port.set_timeout(Duration::from_millis(1))?;
+        port.set_timeout(Duration::from_millis(0))?;
 
         Ok(Self {
             port,
             read_buffer: [0; 14],
             alls_ports: [alls_p1_port, alls_p2_port],
-            alls_active: [true, true],
+            alls_active: [false, false],
         })
     }
 
@@ -46,8 +54,11 @@ impl RingEdge2 {
         if let Err(err) = self.port.read_exact(self.read_buffer[6..14].as_mut()) {
             panic!("{}", err);
         }
+
         if self.alls_active[0] {
-            Self::send_to_alls(self.read_buffer[1..5].as_mut(), self.alls_ports[0].as_mut());
+            Self::send_to_alls(
+                self.read_buffer[1..5].as_mut(),
+                self.alls_ports[0].as_mut());
         }
 
         if self.alls_active[1] {
@@ -59,6 +70,7 @@ impl RingEdge2 {
     }
 
     pub fn parse_command_from_alls(&mut self, msg: AllsMessageCmd) {
+        debug!("P{}: {:?}", msg.player_num+1, msg.cmd);
         match msg.cmd {
             AllsTouchMasterCommand::Halt => {
                 self.alls_active[msg.player_num] = false;
@@ -108,9 +120,13 @@ impl RingEdge2 {
                     areas.iter().for_each(|a| write_buffer[a.0] |= a.1);
                 }
             }
+
         }
-        port.write(write_buffer.as_mut()).unwrap();
-        port.flush().unwrap();
+        if write_buffer.ne(&DEFAULT_ALLS_WRITE_BUFFER) {
+            debug!("Touch pressed on {}, {:?}", port.name().unwrap(), &write_buffer);
+        }
+        port.write(&write_buffer).unwrap();
+
     }
 }
 

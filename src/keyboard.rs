@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::mem::size_of;
+use log::error;
 
 use winapi::ctypes::c_int;
 use winapi::shared::minwindef::{DWORD, UINT, WORD};
@@ -40,7 +41,8 @@ impl Keyboard {
             )
         };
         if value != 1 {
-            todo!();
+            error!("Keyboard error, check your privileges and try again");
+            Err(())
         } else {
             Ok(())
         }
@@ -69,5 +71,16 @@ impl Keyboard {
     pub fn key_tap(&mut self, key_code: c_int) {
         let _ = Self::send_input(0, key_code as WORD, 0);
         let _ = Self::send_input(KEYEVENTF_KEYUP, key_code as WORD, 0);
+    }
+}
+
+impl Drop for Keyboard {
+    fn drop(&mut self) {
+        let keys = &self.pressed_keys.clone();
+        for (key, &clicked) in keys.iter() {
+            if clicked {
+                self.key_up(key);
+            }
+        }
     }
 }
