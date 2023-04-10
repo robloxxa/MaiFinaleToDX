@@ -84,18 +84,12 @@ impl RingEdge2 {
 
     fn cmd(&mut self, dest: u8, data: &[u8]) -> io::Result<(usize, u8)> {
         self.write_packet(dest, data)?;
-        dbg!("read packet");
-        loop {
-            if dbg!(self.port.read_byte()?) != SYNC {
-                continue;
-            }
-            break;
-        }
-        dbg!("loop gone");
+
+        // FIXME: for some reason it could just stop reading anything
+        self.port.read_byte()?;
         self.port.read_byte()?;
         let size = self.port.read_byte()? as usize;
         let status = self.port.read_byte()?;
-        dbg!("read size and status");
         let mut counter: usize = 0;
 
         while counter < size - 1 {
