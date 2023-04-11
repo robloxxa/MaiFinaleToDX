@@ -43,6 +43,10 @@ pub struct Settings {
     #[arg(long, default_value = "false", action=ArgAction::SetTrue)]
     pub disable_jvs: bool,
 
+    /// Disable NFC reader feature
+    #[arg(long, default_value = "false", action=ArgAction::SetTrue)]
+    pub disable_reader: bool,
+
     /// COM Port for Finale touch
     #[arg(long, default_value = "COM23")]
     pub touch_re2_com: String,
@@ -58,6 +62,12 @@ pub struct Settings {
     /// COM Port for Finale's JVS
     #[arg(long, default_value = "COM24")]
     pub jvs_re2_com: String,
+
+    #[arg(long, default_value = "COM22")]
+    pub reader_re2_com: String,
+
+    #[arg(long, default_value = "COM1")]
+    pub reader_alls_com: String,
 }
 
 #[derive(ClapSerde, Deserialize, Serialize, Debug, Clone)]
