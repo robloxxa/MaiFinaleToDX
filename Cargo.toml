@@ -1,6 +1,6 @@
 [package]
 name = "re2_to_alls_wrapper"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -15,5 +15,3 @@ serde = { version = "1.0.158", features = ["derive"] }
 flexi_logger = "0.25.3"
 log = "0.4.17"
 clap-serde-derive = "0.2.0"
-config-manager = "0.2.0"
-derivative = "2.2.0"
