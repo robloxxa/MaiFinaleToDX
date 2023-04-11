@@ -1,17 +1,15 @@
 use std::time::Duration;
 use std::{io, thread};
-use std::io::Read;
+
 use std::thread::JoinHandle;
 
-use log::{debug, info};
+use log::{info};
 use serialport::SerialPort;
 use winapi::ctypes::c_int;
-use winapi::um::winuser::{
-    VK_NUMPAD1, VK_NUMPAD2, VK_NUMPAD4, VK_NUMPAD6, VK_NUMPAD7, VK_NUMPAD8, VK_NUMPAD9,
-};
+
 
 use crate::config;
-use crate::config::{Config, Settings};
+use crate::config::{Config};
 use crate::helper_funcs::{bit_read, SerialExt};
 use crate::keyboard::Keyboard;
 

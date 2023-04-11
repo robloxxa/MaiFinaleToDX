@@ -6,7 +6,7 @@
 // So if you press, for example, B1 area in Maimai DX, it will also press E1 and E2 (which is is close to B1)
 
 use std::io::Write;
-use crate::config::{Config, Settings};
+use crate::config::{Settings};
 use std::thread;
 use std::thread::JoinHandle;
 use log::info;

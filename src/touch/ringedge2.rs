@@ -1,5 +1,5 @@
 use std::io::Write;
-use std::time::{Duration, Instant};
+use std::time::{Duration};
 use log::debug;
 
 use serialport::SerialPort;

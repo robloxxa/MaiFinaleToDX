@@ -1,10 +1,10 @@
 use crate::config::Config;
 use ::clap;
-use clap::{Arg, Parser};
+use clap::{Parser};
 use clap_serde_derive::ClapSerde;
-use flexi_logger::{colored_opt_format, opt_format, Logger};
-use log::{debug, error, info, warn};
-use std::fs;
+use flexi_logger::{colored_opt_format, Logger};
+use log::{warn};
+
 use std::fs::File;
 use std::io::{Read, Write};
 use std::thread::JoinHandle;
