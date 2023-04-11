@@ -10,11 +10,9 @@ use winapi::ctypes::c_int;
 
 use crate::config;
 use crate::config::{Config};
-use crate::helper_funcs::{bit_read, SerialExt};
+use crate::helper_funcs::{bit_read, SerialExt, SYNC, MARK};
 use crate::keyboard::Keyboard;
 
-static SYNC: u8 = 0xE0;
-static MARK: u8 = 0xD0;
 static BROADCAST: u8 = 0xFF;
 
 static CMD_RESET: u8 = 0xF0;
@@ -64,18 +62,18 @@ impl RingEdge2 {
         let size: u8 = data.len() as u8 + 1;
         let mut sum = dest as u32 + size as u32;
 
-        self.port.write(&[SYNC, dest, size])?;
+        self.port.write_all(&[SYNC, dest, size])?;
 
         for &b in data.iter() {
             if b == SYNC || b == MARK {
-                self.port.write(&[MARK, b - 1])?;
+                self.port.write_all(&[MARK, b - 1])?;
             } else {
-                self.port.write(&[b])?;
+                self.port.write_all(&[b])?;
             }
 
             sum = (sum + b as u32) % 256;
         }
-        self.port.write(&[sum as u8])?;
+        self.port.write_all(&[sum as u8])?;
         self.port.flush()?;
         Ok(())
     }
@@ -84,8 +82,9 @@ impl RingEdge2 {
         self.write_packet(dest, data)?;
 
         // FIXME: for some reason it could just stop reading anything
-        self.port.read_byte()?;
-        self.port.read_byte()?;
+        dbg!("reading sync");
+        self.port.read_exact(&mut [0,0])?;
+        dbg!("done reading sync");
         let size = self.port.read_byte()? as usize;
         let status = self.port.read_byte()?;
         let mut counter: usize = 0;
@@ -98,7 +97,6 @@ impl RingEdge2 {
             self.data_buffer[counter] = b;
             counter += 1;
         }
-        dbg!("read byte data");
         Ok((counter, status))
     }
 
