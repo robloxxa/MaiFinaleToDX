@@ -1,5 +1,8 @@
 use serialport;
 
+pub static SYNC: u8 = 0xE0;
+pub static MARK: u8 = 0xD0;
+
 pub trait SerialExt {
     fn read_byte(&mut self) -> Result<u8, serialport::Error>;
 }
