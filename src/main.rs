@@ -60,5 +60,11 @@ fn main() {
         warn!("\"disable_jvs\" was set to True. JVS features disabled")
     }
 
+    if !config.settings.disable_reader {
+        handles.push(card_reader::spawn_thread(&config));
+    } else {
+        warn!("\"disable_reader\" was set to True. NFC reader proxy disabled")
+    }
+
     loop{}
 }
