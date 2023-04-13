@@ -3,14 +3,13 @@ use std::{io, thread};
 
 use std::thread::JoinHandle;
 
-use log::{info};
+use log::{error, info};
 use serialport::SerialPort;
 use winapi::ctypes::c_int;
 
-
 use crate::config;
-use crate::config::{Config};
-use crate::helper_funcs::{bit_read, SerialExt, SYNC, MARK};
+use crate::config::Config;
+use crate::helper_funcs::{bit_read, SerialExt, MARK, SYNC};
 use crate::keyboard::Keyboard;
 
 static BROADCAST: u8 = 0xFF;
@@ -82,9 +81,7 @@ impl RingEdge2 {
         self.write_packet(dest, data)?;
 
         // FIXME: for some reason it could just stop reading anything
-        dbg!("reading sync");
-        self.port.read_exact(&mut [0,0])?;
-        dbg!("done reading sync");
+        self.port.read_exact(&mut [0, 0])?;
         let size = self.port.read_byte()? as usize;
         let status = self.port.read_byte()?;
         let mut counter: usize = 0;
@@ -112,7 +109,6 @@ impl RingEdge2 {
 
         self.reset()?;
         info!("Reset sent");
-        thread::sleep(Duration::from_secs(1));
 
         let (size, status) = self.cmd(BROADCAST, &[CMD_ASSIGN_ADDRESS, board])?;
         info!(
@@ -160,10 +156,9 @@ impl RingEdge2 {
         Ok(())
     }
 
-    fn read_digital(&mut self, board: u8) {
-        let (size, _) = self.cmd(board, &[CMD_READ_DIGITAL, 0x02, 0x02]).unwrap();
+    fn read_digital(&mut self, board: u8) -> io::Result<()> {
+        let (size, _) = self.cmd(board, &[CMD_READ_DIGITAL, 0x02, 0x02])?;
         let data = &self.data_buffer[..size];
-
 
         if bit_read(&data[2], 6) {
             self.keyboard.key_down(&self.test_key);
@@ -188,6 +183,7 @@ impl RingEdge2 {
                 }
             }
         }
+        Ok(())
     }
 }
 
@@ -236,15 +232,15 @@ fn map_input_settings(settings: &config::Input) -> InputMapping {
     ]
 }
 
-pub fn spawn_thread(args: &Config) -> JoinHandle<()> {
-    let mut jvs = RingEdge2::new(
-        args.settings.jvs_re2_com.clone(),
-        args.input.clone())
-        .unwrap();
-    thread::spawn(move || {
-        jvs.init(1).unwrap();
+pub fn spawn_thread(args: &Config) -> io::Result<JoinHandle<io::Result<()>>> {
+    let mut jvs = RingEdge2::new(args.settings.jvs_re2_com.clone(), args.input.clone())?;
+    jvs.init(1)?;
+
+    Ok(thread::spawn(move || -> io::Result<()> {
         loop {
-            jvs.read_digital(1)
+            if let Err(E) = jvs.read_digital(1) {
+                error!("Jvs error: {}", E);
+            };
         }
-    })
+    }))
 }

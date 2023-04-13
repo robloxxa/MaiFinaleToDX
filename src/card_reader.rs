@@ -1,13 +1,14 @@
-use std::{io, thread};
 use std::io::Write;
+use std::os::windows::io::AsRawHandle;
 use std::thread::JoinHandle;
 use std::time::Duration;
+use std::{io, thread};
 
 use log::{debug, info};
-use serialport::SerialPort;
+use serialport::{COMPort, SerialPort};
 
 use crate::config::Config;
-use crate::helper_funcs::{MARK, SerialExt, SYNC};
+use crate::helper_funcs::{SerialExt, MARK, SYNC};
 
 // #[derive(Debug)]
 // #[repr(u8)]
@@ -56,10 +57,16 @@ impl CardReader {
         self.reset()?;
         info!("Reset sent");
         let mut n = self.cmd(00, &[CMD_GETFIRMWARE, 00])?;
-        info!("Firmware Version: {}", std::str::from_utf8(&self.data_buffer[..n]).unwrap());
+        info!(
+            "Firmware Version: {}",
+            std::str::from_utf8(&self.data_buffer[..n]).unwrap()
+        );
         n = self.cmd(00, &[CMD_GETHARDWARE, 00])?;
-        info!("Hardware Version: {}", std::str::from_utf8(&self.data_buffer[..n]).unwrap());
-        info!("Readers successfully initialized");
+        info!(
+            "Hardware Version: {}",
+            std::str::from_utf8(&self.data_buffer[..n]).unwrap()
+        );
+        info!("Reader successfully initialized");
         Ok(())
     }
 
@@ -67,7 +74,11 @@ impl CardReader {
         self.write_packet(dest, data)?;
 
         match self.re2_port.read_byte() {
-            Ok(x) => if x != 0xE0 { return Ok(0) },
+            Ok(x) => {
+                if x != 0xE0 {
+                    return Ok(0);
+                }
+            }
             Err(err) => return Err(io::Error::from(err)),
         }
 
@@ -85,16 +96,20 @@ impl CardReader {
             self.data_buffer[counter] = b;
             counter += 1;
         }
-        debug!("CMD: {}, Report: {}. Data: {:?}",
-            cmd, report, &self.data_buffer[..counter]);
-        Ok(counter-1)
+        debug!(
+            "CMD: {}, Report: {}. Data: {:?}",
+            cmd,
+            report,
+            &self.data_buffer[..counter]
+        );
+        Ok(counter - 1)
     }
 
     pub fn write_packet(&mut self, dest: u8, data: &[u8]) -> io::Result<()> {
         let size: u8 = data.len() as u8 + 3;
         let mut sum = dest as u32 + size as u32 + self.seq_num as u32;
 
-        self.re2_port.write(&[SYNC, size, dest, self.seq_num])?;
+        self.re2_port.write_all(&[SYNC, size, dest, self.seq_num])?;
         self.seq_num = self.seq_num + 1 % 32;
 
         for &b in data.iter() {
@@ -107,7 +122,6 @@ impl CardReader {
             sum = (sum + b as u32) % 256;
         }
         self.re2_port.write(&[sum as u8])?;
-        self.re2_port.flush()?;
         Ok(())
     }
 
@@ -121,20 +135,20 @@ impl CardReader {
     pub fn read_re2(&mut self) {}
 }
 
-pub fn spawn_thread(config: &Config) -> JoinHandle<()> {
+pub fn spawn_thread(config: &Config) -> io::Result<JoinHandle<io::Result<()>>> {
     let mut reader = CardReader::new(
         config.settings.reader_re2_com.clone(),
         config.settings.reader_alls_com.clone(),
-    ).unwrap();
+    )?;
 
+    reader.init()?;
 
-    thread::spawn(move || {
-        reader.init().expect("cannot init");
-        let _ = reader.cmd(00, &[CMD_RADIO_ON, 00]);
+    Ok(thread::spawn(move || -> io::Result<()> {
+        let _ = reader.cmd(00, &[CMD_RADIO_ON, 00])?;
 
         loop {
             let n = reader.cmd(00, &[CMD_POLL, 00]).unwrap();
             thread::sleep(Duration::from_millis(2000));
         }
-    })
+    }))
 }
