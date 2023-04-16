@@ -4,7 +4,7 @@ use std::thread::JoinHandle;
 use std::time::Duration;
 use std::{io, thread};
 
-use log::{debug, info};
+use log::{debug, info, warn};
 use serialport::{COMPort, SerialPort};
 
 use crate::config::Config;
@@ -34,6 +34,7 @@ pub struct CardReader {
     alls_port: Box<dyn SerialPort>,
 
     data_buffer: [u8; 512],
+    id_buffer: [u8; 64],
     seq_num: u8,
 }
 
@@ -48,88 +49,40 @@ impl CardReader {
             re2_port,
             alls_port,
             data_buffer: [0; 512],
+            id_buffer: [0; 64],
             seq_num: 0,
         })
     }
 
-    pub fn init(&mut self) -> io::Result<()> {
+    pub fn init(&mut self, dest: u8) -> io::Result<()> {
         info!("Initializing Readers...");
-        self.reset()?;
+        let _ = self.cmd(dest, &[RESET, 00])?;
+        let _ = self.cmd(dest, &[RESET, 00])?;
         info!("Reset sent");
-        let mut n = self.cmd(00, &[CMD_GETFIRMWARE, 00])?;
+        let mut n = self.cmd(dest, &[CMD_GETFIRMWARE, 00])?;
         info!(
             "Firmware Version: {}",
             std::str::from_utf8(&self.data_buffer[..n]).unwrap()
         );
-        n = self.cmd(00, &[CMD_GETHARDWARE, 00])?;
+        n = self.cmd(dest, &[CMD_GETHARDWARE, 00])?;
         info!(
             "Hardware Version: {}",
             std::str::from_utf8(&self.data_buffer[..n]).unwrap()
         );
+        // let _ = self.cmd(0x09, &[0xF5, 00]);
+        // let _ = self.cmd(0x09, &[0xF5, 00]);
         info!("Reader successfully initialized");
         Ok(())
     }
 
     pub fn cmd(&mut self, dest: u8, data: &[u8]) -> io::Result<usize> {
-        self.write_packet(dest, data)?;
-
-        match self.re2_port.read_byte() {
-            Ok(x) => {
-                if x != 0xE0 {
-                    return Ok(0);
-                }
-            }
-            Err(err) => return Err(io::Error::from(err)),
-        }
-
-        let size = self.re2_port.read_byte()? as usize;
-        self.re2_port.read_byte()?;
-        self.re2_port.read_byte()?;
-        let cmd = self.re2_port.read_byte()?;
-        let report = self.re2_port.read_byte()?;
-        let mut counter = 0;
-        while counter < size - 4 {
-            let mut b = self.re2_port.read_byte()?;
-            if b == MARK {
-                b = self.re2_port.read_byte()? + 1;
-            }
-            self.data_buffer[counter] = b;
-            counter += 1;
-        }
-        debug!(
-            "CMD: {}, Report: {}. Data: {:?}",
-            cmd,
-            report,
-            &self.data_buffer[..counter]
-        );
-        Ok(counter - 1)
+        self.re2_port.write_aime_packet(dest, &mut self.seq_num, data)?;
+        self.re2_port.read_aime_packet(&mut self.data_buffer)
     }
 
-    pub fn write_packet(&mut self, dest: u8, data: &[u8]) -> io::Result<()> {
-        let size: u8 = data.len() as u8 + 3;
-        let mut sum = dest as u32 + size as u32 + self.seq_num as u32;
-
-        self.re2_port.write_all(&[SYNC, size, dest, self.seq_num])?;
-        self.seq_num = self.seq_num + 1 % 32;
-
-        for &b in data.iter() {
-            if b == SYNC || b == MARK {
-                self.re2_port.write(&[MARK, b - 1])?;
-            } else {
-                self.re2_port.write(&[b])?;
-            }
-
-            sum = (sum + b as u32) % 256;
-        }
-        self.re2_port.write(&[sum as u8])?;
-        Ok(())
-    }
-
-    pub fn reset(&mut self) -> io::Result<()> {
-        let _ = self.cmd(0, &[RESET, 00])?;
-        thread::sleep(Duration::from_secs(2));
-        let _ = self.cmd(0, &[RESET, 00])?;
-        Ok(())
+    pub fn poll_nfc(&mut self, dest: u8) -> io::Result<usize> {
+        let n = self.cmd(dest, &[CMD_POLL, 00])?;
+        Ok(n)
     }
 
     pub fn read_re2(&mut self) {}
@@ -141,14 +94,15 @@ pub fn spawn_thread(config: &Config) -> io::Result<JoinHandle<io::Result<()>>> {
         config.settings.reader_alls_com.clone(),
     )?;
 
-    reader.init()?;
-
+    reader.init(0x00)?;
     Ok(thread::spawn(move || -> io::Result<()> {
-        let _ = reader.cmd(00, &[CMD_RADIO_ON, 00])?;
-
+        let _ = reader.cmd(0x00, &[CMD_RADIO_ON, 01, 03])?;
         loop {
-            let n = reader.cmd(00, &[CMD_POLL, 00]).unwrap();
-            thread::sleep(Duration::from_millis(2000));
+            if let Ok(n) = reader.poll_nfc(0x00) {
+                warn!("00: {:?}", &reader.data_buffer[..n]);
+            }
+
+            thread::sleep(Duration::from_secs(2));
         }
     }))
 }

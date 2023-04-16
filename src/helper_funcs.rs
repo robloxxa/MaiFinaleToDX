@@ -1,3 +1,5 @@
+use std::io;
+use log::debug;
 use serialport;
 
 pub static SYNC: u8 = 0xE0;
@@ -8,6 +10,97 @@ pub trait SerialExt: serialport::SerialPort {
         let mut read_buf: [u8; 1] = [0];
         self.read_exact(read_buf.as_mut())?;
         return Ok(read_buf[0]);
+    }
+    
+    fn read_jvs_packet(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        self.read_exact(&mut [0, 0])?;
+        let size = self.read_byte()? as usize;
+        let _ = self.read_byte()?; // TODO: return error if status is wrong
+        let mut counter: usize = 0;
+
+        while counter < size - 1 {
+            let mut b = self.read_byte()?;
+            if b == MARK {
+                b = self.read_byte()? + 1;
+            }
+            buf[counter] = b;
+            counter += 1;
+        }
+        
+        Ok(counter-1)
+    }
+    
+    fn write_jvs_packet(&mut self, dest: u8, data: &[u8]) -> io::Result<()> {
+        let size: u8 = data.len() as u8 + 1;
+        let mut sum = dest as u32 + size as u32;
+
+        self.write_all(&[SYNC, dest, size])?;
+
+        for &b in data.iter() {
+            if b == SYNC || b == MARK {
+                self.write(&[MARK, b - 1])?;
+            } else {
+                self.write(&[b])?;
+            }
+
+            sum = (sum + b as u32) % 256;
+        }
+        self.write(&[sum as u8])?;
+        Ok(())
+    }
+    
+    fn read_aime_packet(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+
+        match self.read_byte() {
+            Ok(x) => {
+                if x != 0xE0 {
+                    return Ok(0);
+                }
+            }
+            Err(err) => return Err(io::Error::from(err)),
+        }
+
+        let size = self.read_byte()? as usize;
+        self.read_byte()?;
+        self.read_byte()?;
+        let cmd = self.read_byte()?;
+        let report = self.read_byte()?;
+        let mut counter = 0;
+        while counter < size - 4 {
+            let mut b = self.read_byte()?;
+            if b == MARK {
+                b = self.read_byte()? + 1;
+            }
+            buf[counter] = b;
+            counter += 1;
+        }
+        debug!(
+            "CMD: {}, Report: {}. Data: {:?}",
+            cmd,
+            report,
+            &buf[..counter]
+        );
+        Ok(counter - 1)
+    }
+    fn write_aime_packet(&mut self, dest: u8, seq_num: &mut u8, buf: &[u8]) -> io::Result<()> {
+        let size: u8 = buf.len() as u8 + 3;
+        let mut sum = dest as u32 + size as u32 + *seq_num as u32;
+
+        self.write_all(&[SYNC, size, dest, *seq_num])?;
+        *seq_num = *seq_num + 1 % 32;
+
+        for &b in buf.iter() {
+            if b == SYNC || b == MARK {
+                self.write(&[MARK, b - 1])?;
+            } else {
+                self.write(&[b])?;
+            }
+
+            sum = (sum + b as u32) % 256;
+        }
+        
+        self.write(&[sum as u8])?;
+        Ok(())
     }
 }
 

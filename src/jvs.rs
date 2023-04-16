@@ -57,50 +57,18 @@ impl RingEdge2 {
         })
     }
 
-    pub fn write_packet(&mut self, dest: u8, data: &[u8]) -> io::Result<()> {
-        let size: u8 = data.len() as u8 + 1;
-        let mut sum = dest as u32 + size as u32;
 
-        self.port.write_all(&[SYNC, dest, size])?;
-
-        for &b in data.iter() {
-            if b == SYNC || b == MARK {
-                self.port.write_all(&[MARK, b - 1])?;
-            } else {
-                self.port.write_all(&[b])?;
-            }
-
-            sum = (sum + b as u32) % 256;
-        }
-        self.port.write_all(&[sum as u8])?;
-        self.port.flush()?;
-        Ok(())
-    }
-
-    fn cmd(&mut self, dest: u8, data: &[u8]) -> io::Result<(usize, u8)> {
-        self.write_packet(dest, data)?;
+    fn cmd(&mut self, dest: u8, data: &[u8]) -> io::Result<usize> {
+        self.port.write_jvs_packet(dest, data)?;
 
         // FIXME: for some reason it could just stop reading anything
-        self.port.read_exact(&mut [0, 0])?;
-        let size = self.port.read_byte()? as usize;
-        let status = self.port.read_byte()?;
-        let mut counter: usize = 0;
-
-        while counter < size - 1 {
-            let mut b = self.port.read_byte()?;
-            if b == MARK {
-                b = self.port.read_byte()? + 1;
-            }
-            self.data_buffer[counter] = b;
-            counter += 1;
-        }
-        Ok((counter, status))
+        self.port.read_jvs_packet(&mut self.data_buffer)
     }
 
     fn reset(&mut self) -> io::Result<()> {
         let data = [CMD_RESET, CMD_RESET_ARGUMENT];
-        self.write_packet(BROADCAST, &data)?;
-        self.write_packet(BROADCAST, &data)?;
+        self.port.write_jvs_packet(BROADCAST, &data)?;
+        self.port.write_jvs_packet(BROADCAST, &data)?;
         Ok(())
     }
 
@@ -110,46 +78,40 @@ impl RingEdge2 {
         self.reset()?;
         info!("Reset sent");
 
-        let (size, status) = self.cmd(BROADCAST, &[CMD_ASSIGN_ADDRESS, board])?;
+        let size = self.cmd(BROADCAST, &[CMD_ASSIGN_ADDRESS, board])?;
         info!(
-            "[Status: {}] Assigned address {}. Data: {:?}",
-            status,
+            "Assigned address {}. Data: {:?}",
             board,
             &self.data_buffer[..size],
         );
 
-        let (size, status) = self.cmd(board, &[CMD_IDENTIFY])?;
+        let size = self.cmd(board, &[CMD_IDENTIFY])?;
         info!(
-            "[Status: {}] Board Info: {}",
-            status,
+            "Board Info: {}",
             std::str::from_utf8(&self.data_buffer[..size]).unwrap()
         );
 
-        let (size, status) = self.cmd(board, &[CMD_COMMAND_REVISION])?;
+        let size = self.cmd(board, &[CMD_COMMAND_REVISION])?;
         info!(
-            "[Status: {}] Command Version Revision: {:?}",
-            status,
+            "Command Version Revision: {:?}",
             &self.data_buffer[..size]
         );
 
-        let (size, status) = self.cmd(board, &[CMD_JVS_VERSION])?;
+        let size = self.cmd(board, &[CMD_JVS_VERSION])?;
         info!(
-            "[Status: {}] JVS Version: {:?}",
-            status,
+            "JVS Version: {:?}",
             &self.data_buffer[..size]
         );
 
-        let (size, status) = self.cmd(board, &[CMD_COMMS_VERSION])?;
+        let size = self.cmd(board, &[CMD_COMMS_VERSION])?;
         info!(
-            "[Status: {}] Communications Version: {:?}",
-            status,
+            "Communications Version: {:?}",
             &self.data_buffer[..size]
         );
 
-        let (size, status) = self.cmd(board, &[CMD_CAPABILITIES])?;
+        let size = self.cmd(board, &[CMD_CAPABILITIES])?;
         info!(
-            "[Status: {}] Feature check: {:?}",
-            status,
+            "Feature check: {:?}",
             &self.data_buffer[..size]
         );
 
@@ -157,7 +119,7 @@ impl RingEdge2 {
     }
 
     fn read_digital(&mut self, board: u8) -> io::Result<()> {
-        let (size, _) = self.cmd(board, &[CMD_READ_DIGITAL, 0x02, 0x02])?;
+        let size = self.cmd(board, &[CMD_READ_DIGITAL, 0x02, 0x02])?;
         let data = &self.data_buffer[..size];
 
         if bit_read(&data[2], 6) {
