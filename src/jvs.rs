@@ -4,7 +4,7 @@ use std::{io, thread};
 use std::thread::JoinHandle;
 
 use log::{error, info};
-use serialport::SerialPort;
+use serialport::{ClearBuffer, FlowControl, SerialPort};
 use winapi::ctypes::c_int;
 
 use crate::config;
@@ -25,8 +25,8 @@ static CMD_COMMS_VERSION: u8 = 0x13;
 static CMD_CAPABILITIES: u8 = 0x14;
 static CMD_CONVEY_ID: u8 = 0x15;
 static CMD_READ_DIGITAL: u8 = 0x20;
-
 type InputMapping = [[Option<c_int>; 8]; 4];
+
 
 pub struct RingEdge2 {
     pub port: Box<dyn SerialPort>,
@@ -45,7 +45,9 @@ impl RingEdge2 {
         input_settings: config::Input,
     ) -> Result<Self, serialport::Error> {
         let mut port = serialport::new(port_name, 115_200).open()?;
-        port.set_timeout(Duration::from_millis(1000))?;
+        port.set_timeout(Duration::from_millis(500))?;
+        port.set_flow_control(FlowControl::None)?;
+        port.clear(ClearBuffer::All)?;
         let input_map = map_input_settings(&input_settings);
         Ok(Self {
             port,
@@ -76,7 +78,7 @@ impl RingEdge2 {
 
         self.reset()?;
         info!("Reset sent");
-
+        thread::sleep(Duration::from_millis(500));
         let size = self.cmd(BROADCAST, &[CMD_ASSIGN_ADDRESS, board])?;
         info!(
             "Assigned address {}. Data: {:?}",
@@ -194,6 +196,8 @@ pub fn spawn_thread(args: &Config) -> io::Result<JoinHandle<io::Result<()>>> {
             if let Err(E) = jvs.read_digital(1) {
                 error!("Jvs error: {}", E);
             };
+
+            // thread::sleep(Duration::from_millis(10));
         }
     }))
 }

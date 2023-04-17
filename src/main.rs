@@ -60,6 +60,7 @@ fn main() {
         warn!("\"disable_touch\" was set to True. Touch features disabled")
     }
 
+    // TODO: OVERLAPPED io for jvs, since it sometimes hangs for some reason
     if !config.settings.disable_jvs {
         match jvs::spawn_thread(&config) {
             Ok(jvs) => handles.push(jvs),
@@ -77,20 +78,6 @@ fn main() {
     } else {
         warn!("\"disable_reader\" was set to True. NFC reader proxy disabled")
     }
-
-    thread::spawn(move || {
-        let mut p1 = serialport::new("COM6", 38400).open().unwrap();
-        loop {
-            p1.read_byte().unwrap();
-            println!("p1 read");
-            p1.write(&[1]).unwrap();
-        }
-    });
-    let mut p2 = serialport::new("COM7", 38400).open().unwrap();
-    p2.write(&[2]).unwrap();
     loop {
-        p2.read_byte().unwrap();
-        println!("p2 read");
-        p2.write(&[2]).unwrap();
     }
 }
