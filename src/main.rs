@@ -5,11 +5,13 @@ use clap_serde_derive::ClapSerde;
 use flexi_logger::{colored_opt_format, Logger};
 use log::{error, warn};
 
+use crate::helper_funcs::SerialExt;
 use serialport::COMPort;
 use std::fs::File;
-use std::io;
 use std::io::{Read, Write};
 use std::thread::JoinHandle;
+use std::{io, thread};
+
 mod card_reader;
 mod config;
 mod helper_funcs;
@@ -76,5 +78,19 @@ fn main() {
         warn!("\"disable_reader\" was set to True. NFC reader proxy disabled")
     }
 
-    loop {}
+    thread::spawn(move || {
+        let mut p1 = serialport::new("COM6", 38400).open().unwrap();
+        loop {
+            p1.read_byte().unwrap();
+            println!("p1 read");
+            p1.write(&[1]).unwrap();
+        }
+    });
+    let mut p2 = serialport::new("COM7", 38400).open().unwrap();
+    p2.write(&[2]).unwrap();
+    loop {
+        p2.read_byte().unwrap();
+        println!("p2 read");
+        p2.write(&[2]).unwrap();
+    }
 }

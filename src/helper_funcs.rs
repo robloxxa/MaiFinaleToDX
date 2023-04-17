@@ -1,6 +1,8 @@
-use std::io;
 use log::debug;
 use serialport;
+use std::io;
+use std::io::Write;
+use std::num::Wrapping;
 
 pub static SYNC: u8 = 0xE0;
 pub static MARK: u8 = 0xD0;
@@ -11,7 +13,7 @@ pub trait SerialExt: serialport::SerialPort {
         self.read_exact(read_buf.as_mut())?;
         return Ok(read_buf[0]);
     }
-    
+
     fn read_jvs_packet(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         self.read_exact(&mut [0, 0])?;
         let size = self.read_byte()? as usize;
@@ -26,13 +28,13 @@ pub trait SerialExt: serialport::SerialPort {
             buf[counter] = b;
             counter += 1;
         }
-        
-        Ok(counter-1)
+
+        Ok(counter - 1)
     }
-    
+
     fn write_jvs_packet(&mut self, dest: u8, data: &[u8]) -> io::Result<()> {
         let size: u8 = data.len() as u8 + 1;
-        let mut sum = dest as u32 + size as u32;
+        let mut sum: u8 = dest.wrapping_add(size);
 
         self.write_all(&[SYNC, dest, size])?;
 
@@ -43,14 +45,19 @@ pub trait SerialExt: serialport::SerialPort {
                 self.write(&[b])?;
             }
 
-            sum = (sum + b as u32) % 256;
+            sum = sum.wrapping_add(b);
         }
-        self.write(&[sum as u8])?;
+
+        if sum == SYNC || sum == MARK {
+            self.write(&[MARK, sum - 1])?;
+        } else {
+            self.write(&[sum])?;
+        }
+
         Ok(())
     }
-    
-    fn read_aime_packet(&mut self, buf: &mut [u8]) -> io::Result<usize> {
 
+    fn read_aime_packet(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         match self.read_byte() {
             Ok(x) => {
                 if x != 0xE0 {
@@ -84,7 +91,7 @@ pub trait SerialExt: serialport::SerialPort {
     }
     fn write_aime_packet(&mut self, dest: u8, seq_num: &mut u8, buf: &[u8]) -> io::Result<()> {
         let size: u8 = buf.len() as u8 + 3;
-        let mut sum = dest as u32 + size as u32 + *seq_num as u32;
+        let mut sum = dest.wrapping_add(size).wrapping_add(*seq_num);
 
         self.write_all(&[SYNC, size, dest, *seq_num])?;
         *seq_num = *seq_num + 1 % 32;
@@ -96,10 +103,14 @@ pub trait SerialExt: serialport::SerialPort {
                 self.write(&[b])?;
             }
 
-            sum = (sum + b as u32) % 256;
+            sum = sum.wrapping_add(b);
         }
-        
-        self.write(&[sum as u8])?;
+
+        if sum == SYNC || sum == MARK {
+            self.write(&[MARK, sum - 1])?;
+        } else {
+            self.write(&[sum])?;
+        }
         Ok(())
     }
 }

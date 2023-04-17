@@ -57,7 +57,6 @@ impl RingEdge2 {
         })
     }
 
-
     fn cmd(&mut self, dest: u8, data: &[u8]) -> io::Result<usize> {
         self.port.write_jvs_packet(dest, data)?;
 
@@ -93,27 +92,19 @@ impl RingEdge2 {
 
         let size = self.cmd(board, &[CMD_COMMAND_REVISION])?;
         info!(
-            "Command Version Revision: {:?}",
-            &self.data_buffer[..size]
+            "Command Version Revision: {}{}",
+            "REV",
+            *&self.data_buffer[..size][0] as f32 / 10.0
         );
 
         let size = self.cmd(board, &[CMD_JVS_VERSION])?;
-        info!(
-            "JVS Version: {:?}",
-            &self.data_buffer[..size]
-        );
+        info!("JVS Version: {:?}", &self.data_buffer[..size]);
 
         let size = self.cmd(board, &[CMD_COMMS_VERSION])?;
-        info!(
-            "Communications Version: {:?}",
-            &self.data_buffer[..size]
-        );
+        info!("Communications Version: {:?}", &self.data_buffer[..size]);
 
         let size = self.cmd(board, &[CMD_CAPABILITIES])?;
-        info!(
-            "Feature check: {:?}",
-            &self.data_buffer[..size]
-        );
+        info!("Feature check: {:?}", &self.data_buffer[..size]);
 
         Ok(())
     }
