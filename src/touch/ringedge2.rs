@@ -1,35 +1,31 @@
-use std::io::Write;
-use std::time::{Duration};
-use log::debug;
-
-use serialport::SerialPort;
-
 use crate::helper_funcs::bit_read;
 use crate::touch::alls::AllsTouchMasterCommand;
 use crate::touch::AllsMessageCmd;
+use log::debug;
+use tokio_serial;
+use tokio_serial::SerialPortBuilderExt;
 
 pub struct RingEdge2 {
-    pub port: Box<dyn SerialPort>,
+    pub port: tokio_serial::SerialStream,
 
     read_buffer: [u8; 14],
-    pub alls_ports: [Box<dyn SerialPort>; 2],
+    pub alls_ports: [tokio_serial::SerialStream; 2],
     pub alls_active: [bool; 2],
 }
 
-impl Drop for RingEdge2 {
-    fn drop(&mut self) {
-        self.port.write("{HALT}".as_bytes()).expect("");
-    }
-}
+// impl Drop for RingEdge2 {
+//     fn drop(&mut self) {
+//         self.port.write("{HALT}".as_bytes()).expect("");
+//     }
+// }
 
 impl RingEdge2 {
     pub fn new(
         port_name: String,
-        alls_p1_port: Box<dyn SerialPort>,
-        alls_p2_port: Box<dyn SerialPort>,
-    ) -> Result<Self, serialport::Error> {
-        let mut port = serialport::new(port_name, 9600).open()?;
-        port.set_timeout(Duration::from_millis(0))?;
+        alls_p1_port: tokio_serial::SerialStream,
+        alls_p2_port: tokio_serial::SerialStream,
+    ) -> Result<Self, tokio_serial::Error> {
+        let port = tokio_serial::new(port_name, 9600).open_native_async()?;
 
         Ok(Self {
             port,
@@ -40,37 +36,37 @@ impl RingEdge2 {
     }
 
     pub fn read(&mut self) {
-        if let Err(err) = self.port.read_exact(self.read_buffer[0..6].as_mut()) {
-            if err.kind() == std::io::ErrorKind::TimedOut {
-                return;
-            } else {
-                panic!("{}", err);
-            }
-        }
-        if self.read_buffer[5] == b')' {
-            todo!();
-        }
-
-        if let Err(err) = self.port.read_exact(self.read_buffer[6..14].as_mut()) {
-            panic!("{}", err);
-        }
-
-        if self.alls_active[0] {
-            Self::send_to_alls(
-                self.read_buffer[1..5].as_mut(),
-                self.alls_ports[0].as_mut());
-        }
-
-        if self.alls_active[1] {
-            Self::send_to_alls(
-                self.read_buffer[7..11].as_mut(),
-                self.alls_ports[1].as_mut(),
-            );
-        }
+        // if let Err(err) = self.port.read_exact(self.read_buffer[0..6].as_mut()) {
+        //     if err.kind() == std::io::ErrorKind::TimedOut {
+        //         return;
+        //     } else {
+        //         panic!("{}", err);
+        //     }
+        // }
+        // if self.read_buffer[5] == b')' {
+        //     todo!();
+        // }
+        //
+        // if let Err(err) = self.port.read_exact(self.read_buffer[6..14].as_mut()) {
+        //     panic!("{}", err);
+        // }
+        //
+        // if self.alls_active[0] {
+        //     Self::send_to_alls(
+        //         self.read_buffer[1..5].as_mut(),
+        //         self.alls_ports[0].as_mut());
+        // }
+        //
+        // if self.alls_active[1] {
+        //     Self::send_to_alls(
+        //         self.read_buffer[7..11].as_mut(),
+        //         self.alls_ports[1].as_mut(),
+        //     );
+        // }
     }
 
     pub fn parse_command_from_alls(&mut self, msg: AllsMessageCmd) {
-        debug!("P{}: {:?}", msg.player_num+1, msg.cmd);
+        debug!("P{}: {:?}", msg.player_num + 1, msg.cmd);
         match msg.cmd {
             AllsTouchMasterCommand::Halt => {
                 self.alls_active[msg.player_num] = false;
@@ -108,7 +104,7 @@ impl RingEdge2 {
         };
     }
 
-    fn send_to_alls(buf: &mut [u8], port: &mut dyn SerialPort) {
+    fn send_to_alls(buf: &mut [u8], port: &mut tokio_serial::SerialStream) {
         let mut write_buffer = DEFAULT_ALLS_WRITE_BUFFER;
         for (i, bit) in buf.iter().enumerate() {
             for pos in 0..5 as usize {
@@ -120,13 +116,9 @@ impl RingEdge2 {
                     areas.iter().for_each(|a| write_buffer[a.0] |= a.1);
                 }
             }
+        }
 
-        }
-        if write_buffer.ne(&DEFAULT_ALLS_WRITE_BUFFER) {
-            debug!("Touch pressed on {}, {:?}", port.name().unwrap(), &write_buffer);
-        }
         port.write(&write_buffer).unwrap();
-
     }
 }
 

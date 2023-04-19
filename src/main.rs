@@ -3,23 +3,24 @@ use clap;
 use clap::Parser;
 use clap_serde_derive::ClapSerde;
 use flexi_logger::{colored_opt_format, Logger};
-use log::{error, warn};
+use log::{error, info, warn};
 
-use crate::helper_funcs::SerialExt;
-use serialport::COMPort;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::thread::JoinHandle;
-use std::{io, thread};
+use tokio::signal;
 
 mod card_reader;
 mod config;
 mod helper_funcs;
 mod jvs;
 mod keyboard;
+mod packets;
+mod serial_ext;
 mod touch;
 
-fn main() {
+#[tokio::main]
+async fn main() -> tokio::io::Result<()> {
     let args = Config::parse();
     if args.create_config {
         let mut file =
@@ -28,8 +29,9 @@ fn main() {
         file.write(config_str.as_bytes())
             .expect("Failed to write a config file");
         println!("Config successfully created in {}", args.config_path);
-        return;
+        return Ok(());
     }
+
     let config = if let Ok(mut f) = File::open(&args.config_path) {
         let mut data = String::new();
         f.read_to_string(&mut data).expect("Unable to parse a file");
@@ -41,7 +43,7 @@ fn main() {
         println!("No configuration file found");
         Config::from(args)
     };
-    let mut handles: Vec<JoinHandle<io::Result<()>>> = Vec::new();
+    let mut handles: Vec<JoinHandle<tokio_serial::Result<()>>> = Vec::new();
     Logger::try_with_str(&config.log_level)
         .unwrap()
         .format(colored_opt_format)
@@ -60,7 +62,6 @@ fn main() {
         warn!("\"disable_touch\" was set to True. Touch features disabled")
     }
 
-    // TODO: OVERLAPPED io for jvs, since it sometimes hangs for some reason
     if !config.settings.disable_jvs {
         match jvs::spawn_thread(&config) {
             Ok(jvs) => handles.push(jvs),
@@ -78,6 +79,12 @@ fn main() {
     } else {
         warn!("\"disable_reader\" was set to True. NFC reader proxy disabled")
     }
-    loop {
+
+    tokio::select! {
+        _ = signal::ctrl_c() => {
+            info!("Shutting down...")
+        },
     }
+
+    Ok(())
 }

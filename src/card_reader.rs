@@ -1,15 +1,10 @@
-use std::io::{Read, Write};
-use std::os::windows::io::AsRawHandle;
 use std::thread::JoinHandle;
-use std::time::Duration;
 use std::{io, thread};
 
-use log::{debug, info, warn};
-use serialport::{COMPort, SerialPort};
-use winapi::um::winbase::PACTCTX_SECTION_KEYED_DATA_ASSEMBLY_METADATA;
+use log::info;
+use tokio_serial::SerialPortBuilderExt;
 
 use crate::config::Config;
-use crate::helper_funcs::{SerialExt, MARK, SYNC};
 
 // #[derive(Debug)]
 // #[repr(u8)]
@@ -30,10 +25,9 @@ static CMD_RADIO_ON: u8 = 0x40;
 static CMD_RADIO_OFF: u8 = 0x41;
 static CMD_POLL: u8 = 0x42;
 
-
 pub struct CardReader {
-    re2_port: Box<dyn SerialExt>,
-    alls_port: Box<dyn SerialPort>,
+    re2_port: tokio_serial::SerialStream,
+    alls_port: tokio_serial::SerialStream,
 
     data_buffer: [u8; 512],
     id_buffer: [u8; 64],
@@ -41,14 +35,12 @@ pub struct CardReader {
 }
 
 impl CardReader {
-    pub fn new(re2_port_name: String, alls_port_name: String) -> Result<Self, serialport::Error> {
-        let mut re2_port = COMPort::open(&serialport::new(re2_port_name, 38_400))?;
-        let mut alls_port = serialport::new(alls_port_name, 115_200).open()?;
-        re2_port.set_timeout(Duration::from_millis(0))?;
-        alls_port.set_timeout(Duration::from_millis(0))?;
+    pub fn new(re2_port_name: String, alls_port_name: String) -> Result<Self, tokio_serial::Error> {
+        let mut re2_port = tokio_serial::new(re2_port_name, 38_400).open_native_async()?;
+        let mut alls_port = tokio_serial::new(alls_port_name, 115_200).open_native_async()?;
 
         Ok(Self {
-            re2_port: Box::new(re2_port) as Box<dyn SerialPort> as Box<dyn SerialExt>,
+            re2_port,
             alls_port,
             data_buffer: [0; 512],
             id_buffer: [0; 64],
@@ -78,31 +70,32 @@ impl CardReader {
     }
 
     pub fn cmd(&mut self, dest: u8, data: &[u8]) -> io::Result<usize> {
-        self.re2_port.write_aime_packet(dest, &mut self.seq_num, data)?;
-        self.re2_port.read_aime_packet(&mut self.data_buffer)
+        // self.re2_port
+        //     .write_aime_request(dest, &mut self.seq_num, data)?;
+        // self.re2_port.read_aime_response(&mut self.data_buffer)
+        todo!()
     }
 
     pub fn poll_nfc(&mut self, dest: u8) -> io::Result<usize> {
         let n = self.cmd(dest, &[CMD_POLL, 00])?;
         Ok(n)
     }
-
 }
 
-pub fn spawn_thread(config: &Config) -> io::Result<JoinHandle<io::Result<()>>> {
+pub fn spawn_thread(config: &Config) -> tokio_serial::Result<JoinHandle<tokio_serial::Result<()>>> {
     let mut reader = CardReader::new(
         config.settings.reader_re2_com.clone(),
         config.settings.reader_alls_com.clone(),
     )?;
 
     // reader.init(0x00)?;
-    Ok(thread::spawn(move || -> io::Result<()> {
+    Ok(thread::spawn(move || -> tokio_serial::Result<()> {
         // let _ = reader.cmd(0x00, &[CMD_RADIO_ON, 01, 03])?;
         // TODO: Write a proxy
         loop {
-            let req = RequestPacket::read(reader.alls_port.as_mut())?;
-            reader.seq_num = req.seq_num;
-            req.write(reader.re2_port.as_mut())?;
+            // let req = RequestPacket::read(reader.alls_port.as_mut())?;
+            // reader.seq_num = req.seq_num;
+            // req.write(reader.re2_port.as_mut())?;
 
             // let _ = reader.cmd(0x00, &[CMD_RADIO_ON, 01, 03])?;
             // if let Ok(n) = reader.poll_nfc(0x00) {

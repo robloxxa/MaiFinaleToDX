@@ -1,9 +1,8 @@
-use std::time::Duration;
-
-use serialport::SerialPort;
-
+use tokio::io::{AsyncRead, AsyncReadExt};
 use crate::touch::AllsMessageCmd;
-
+use tokio::sync::mpsc::Sender;
+use tokio_serial;
+use tokio_serial::SerialPortBuilderExt;
 #[repr(u8)]
 #[derive(Debug)]
 pub enum AllsTouchMasterCommand {
@@ -34,21 +33,20 @@ impl AllsTouchMasterCommand {
 }
 
 pub struct Alls {
-    pub port: Box<dyn SerialPort>,
+    pub port: tokio_serial::SerialStream,
     player_num: usize,
     read_buffer: [u8; 6],
-    pub sender_channel: crossbeam_channel::Sender<AllsMessageCmd>,
+    pub sender_channel: Sender<AllsMessageCmd>,
 }
 
 impl Alls {
     pub fn new(
         port_name: String,
         player_num: usize,
-        sender_channel: crossbeam_channel::Sender<AllsMessageCmd>,
-    ) -> Result<Self, serialport::Error> {
-        let mut port = serialport::new(port_name, 115_200).open()?;
-        port.set_timeout(Duration::from_millis(1))?;
-        
+        sender_channel: Sender<AllsMessageCmd>,
+    ) -> Result<Self, tokio_serial::Error> {
+        let port = tokio_serial::new(port_name, 115_200).open_native_async()?;
+
         Ok(Self {
             port,
             player_num,
@@ -57,21 +55,22 @@ impl Alls {
         })
     }
 
-    pub fn read(&mut self) {
-        if let Err(err) = self.port.read(self.read_buffer.as_mut()) {
-            if err.kind() == std::io::ErrorKind::TimedOut {
-                return;
-            } else {
-                panic!("{}", err);
-            }
-        }
+    pub async fn read(&mut self) -> tokio_serial::Result<()> {
+        self.port.read_exact(&mut self.read_buffer).await?;
+        // if let Err(err) = self.port.read(self.read_buffer.as_mut()) {
+        //     if err.kind() == std::io::ErrorKind::TimedOut {
+        //         return;
+        //     } else {
+        //         panic!("{}", err);
+        //     }
+        // }
         let cmd = AllsTouchMasterCommand::from_buf(self.read_buffer.as_ref());
 
-        self.sender_channel
-            .send(AllsMessageCmd {
-                player_num: self.player_num,
-                cmd,
-            })
-            .unwrap();
+        self.sender_channel.send(AllsMessageCmd {
+            player_num: self.player_num,
+            cmd,
+        });
+        
+        Ok(())
     }
 }

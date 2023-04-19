@@ -6,7 +6,8 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-serialport = "4.2.0"
+tokio = { version = "1", features = ["full"] }
+tokio-serial = "5.4.4"
 clap = { features = ["derive"] }
 crossbeam-channel = "0.5.7"
 toml = "0.7.3"
