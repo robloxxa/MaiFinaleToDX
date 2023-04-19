@@ -1,108 +1,11 @@
 use log::debug;
 use serialport;
 use std::io;
-use std::io::Write;
+use std::io::{BufWriter, Write};
 use std::num::Wrapping;
 
 pub static SYNC: u8 = 0xE0;
 pub static MARK: u8 = 0xD0;
-
-// TODO: use packet structs instead of just self.buffer so you can easily access cmd and other packet data
-#[derive(Debug)]
-pub struct RequestPacket {
-    size: usize,
-    dest: u8,
-    seq_num: u8,
-    cmd: u8,
-    data: [u8; 512],
-    sum: u8,
-
-    data_size: usize,
-}
-
-impl Default for RequestPacket {
-    fn default() -> Self {
-        Self {
-            size: 1,
-            dest: 0,
-            seq_num: 0,
-            cmd: 0,
-            data: [0; 512],
-            sum: 0,
-            data_size: 0,
-        }
-    }
-}
-
-impl RequestPacket {
-    fn get_data(&self) -> &[u8] {
-        &self.data[..self.data_size]
-    }
-
-    fn read(reader: &mut dyn SerialPort) -> io::Result<Self> {
-        let _ = reader.read_byte()?;
-        let mut packet = RequestPacket {
-            size: reader.read_byte()? as usize,
-            dest: reader.read_byte()?,
-            seq_num: reader.read_byte()?,
-            cmd: reader.read_byte()?,
-            data_size: 0,
-            data: [0u8;512],
-            sum: 0,
-        };
-        packet.data_size = packet.size - 4;
-        let mut counter = 0usize;
-
-        while counter < packet.data_size {
-            let mut b = reader.read_byte()?;
-            if b == MARK {
-                b = reader.read_byte()? + 1;
-            }
-            packet.data[counter] = b;
-            counter += 1;
-        }
-        packet.sum = reader.read_byte()?;
-        Ok(packet)
-    }
-
-    fn write(&self, writer: &mut dyn SerialPort) -> io::Result<()> {
-        writer.write_all(&[SYNC, self.size as u8, self.dest, self.seq_num, self.cmd])?;
-        writer.write_all(&self.get_data())?;
-        writer.write(&[self.sum])?;
-        Ok(())
-    }
-}
-
-#[derive(Debug)]
-pub struct ResponsePacket {
-    size: usize,
-    dest: u8,
-    seq_num: u8,
-    cmd: u8,
-    report: u8,
-    data: [u8; 512],
-    sum: u8,
-
-    data_size: usize,
-}
-
-impl Default for ResponsePacket {
-    fn default() -> Self {
-        Self {
-            size: 1,
-            dest: 0,
-            seq_num: 0,
-            cmd: 0,
-            report: 0,
-            data: [0; 512],
-            sum: 0,
-            data_size: 0,
-        }
-    }
-}
-impl ResponsePacket {
-
-}
 
 pub trait SerialExt: serialport::SerialPort {
     fn read_byte(&mut self) -> Result<u8, serialport::Error> {
@@ -126,33 +29,44 @@ pub trait SerialExt: serialport::SerialPort {
             buf[counter] = b;
             counter += 1;
         }
-        debug!("Read: {:X?} {:X?} {:X?} {:X?} {:X?}", sync, dest, size, status, &buf[..counter]);
+        debug!(
+            "Read: {:X?} {:X?} {:X?} {:X?} {:X?}",
+            sync,
+            dest,
+            size,
+            status,
+            &buf[..counter]
+        );
         Ok(counter - 1)
     }
 
     fn write_jvs_packet(&mut self, dest: u8, data: &[u8]) -> io::Result<()> {
+        let mut writer = BufWriter::with_capacity(64, self);
         let size: u8 = data.len() as u8 + 1;
         let mut sum: u8 = dest.wrapping_add(size);
 
-        self.write(&[SYNC, dest, size])?;
+        writer.write(&[SYNC, dest, size])?;
 
         for &b in data.iter() {
             if b == SYNC || b == MARK {
-                self.write(&[MARK, b - 1])?;
+                writer.write(&[MARK, b - 1])?;
             } else {
-                self.write(&[b])?;
+                writer.write(&[b])?;
             }
 
             sum = sum.wrapping_add(b);
         }
 
         if sum == SYNC || sum == MARK {
-            self.write(&[MARK, sum - 1])?;
+            writer.write(&[MARK, sum - 1])?;
         } else {
-            self.write(&[sum])?;
+            writer.write(&[sum])?;
         }
-        self.flush()?;
-        debug!("Write: {:X?} {:X?} {:X?} {:X?} {:X?}", SYNC, dest, size, &data, sum);
+        writer.flush()?;
+        debug!(
+            "Write: {:X?} {:X?} {:X?} {:X?} {:X?}",
+            SYNC, dest, size, &data, sum
+        );
         Ok(())
     }
 
