@@ -18,6 +18,10 @@ use crate::touch::ringedge2::*;
 mod alls;
 mod ringedge2;
 
+pub const RSET: &[u8] = "{RSET}".as_bytes();
+pub const HALT: &[u8] = "{HALT}".as_bytes();
+pub const STAT: &[u8] = "{STAT}".as_bytes();
+
 pub struct AllsMessageCmd {
     player_num: usize,
     cmd: AllsTouchMasterCommand,
@@ -25,6 +29,7 @@ pub struct AllsMessageCmd {
 
 pub fn spawn_thread(
     args: &Settings,
+    done_recv: crossbeam_channel::Receiver<()>,
 ) -> io::Result<(JoinHandle<io::Result<()>>, JoinHandle<io::Result<()>>)> {
     let (sender, receiver) = crossbeam_channel::bounded::<AllsMessageCmd>(10);
 
@@ -35,23 +40,30 @@ pub fn spawn_thread(
     let alls_p2_port = alls_p2_touch.port.try_clone()?;
 
     let mut re2_touch = RingEdge2::new(args.touch_re2_com.clone(), alls_p1_port, alls_p2_port)?;
-    re2_touch.port.write("{HALT}".as_bytes())?;
+    re2_touch.port.write(HALT)?;
     re2_touch.port.clear(ClearBuffer::Input)?;
-    re2_touch.port.write("{STAT}".as_bytes())?;
+    re2_touch.port.write(STAT)?;
 
     let alls_handle = thread::spawn(move || loop {
         alls_p1_touch.read();
         alls_p2_touch.read();
     });
 
-    let re2_handle = thread::spawn(move || {
+    let re2_handle = thread::spawn(move || -> io::Result<()> {
         let rcv = receiver.clone();
 
         loop {
+            if let Err(err) = done_recv.try_recv() {
+                break
+            }
             rcv.try_iter()
-                .for_each(|c| re2_touch.parse_command_from_alls(c));
+                .for_each(|c| {re2_touch.parse_command_from_alls(c);});
             re2_touch.read();
         }
+
+        re2_touch.port.write("{HALT}".as_bytes())?;
+
+        Ok(())
     });
 
     info!("Touchscreen is enabled, good luck touchin'!");

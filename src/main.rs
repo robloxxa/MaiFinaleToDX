@@ -3,14 +3,12 @@ use clap;
 use clap::Parser;
 use clap_serde_derive::ClapSerde;
 use flexi_logger::{colored_opt_format, Logger};
-use log::{error, warn};
+use log::{error, info, warn};
 
-use crate::helper_funcs::SerialExt;
-use serialport::COMPort;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::thread::JoinHandle;
-use std::{io, thread};
+use std::io;
 
 mod card_reader;
 mod config;
@@ -18,6 +16,7 @@ mod helper_funcs;
 mod jvs;
 mod keyboard;
 mod touch;
+
 
 fn main() {
     let args = Config::parse();
@@ -48,8 +47,10 @@ fn main() {
         .start()
         .unwrap();
 
+    let (done_send, done_recv) = crossbeam_channel::unbounded::<()>();
+
     if !config.settings.disable_touch {
-        match touch::spawn_thread(&config.settings) {
+        match touch::spawn_thread(&config.settings, done_recv.clone()) {
             Ok((re2, alls)) => {
                 handles.push(re2);
                 handles.push(alls);
@@ -62,7 +63,7 @@ fn main() {
 
     // TODO: OVERLAPPED io for jvs, since it sometimes hangs for some reason
     if !config.settings.disable_jvs {
-        match jvs::spawn_thread(&config) {
+        match jvs::spawn_thread(&config, done_recv.clone()) {
             Ok(jvs) => handles.push(jvs),
             Err(E) => error!("JVS initialization failed: {}", E),
         }
@@ -71,13 +72,16 @@ fn main() {
     }
 
     if !config.settings.disable_reader {
-        match card_reader::spawn_thread(&config) {
+        match card_reader::spawn_thread(&config, done_recv.clone()) {
             Ok(reader) => handles.push(reader),
             Err(E) => error!("Card reader initialization failed: {}", E),
         }
     } else {
         warn!("\"disable_reader\" was set to True. NFC reader proxy disabled")
     }
-    loop {
-    }
+    
+    ctrlc::set_handler(move || {
+        info!("Exiting...");
+    }).unwrap();
+    drop(done_send);
 }

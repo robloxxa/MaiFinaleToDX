@@ -1,12 +1,13 @@
+use std::io;
 use std::io::Write;
 use std::time::{Duration};
-use log::debug;
+use log::{debug, error};
 
 use serialport::SerialPort;
 
 use crate::helper_funcs::bit_read;
 use crate::touch::alls::AllsTouchMasterCommand;
-use crate::touch::AllsMessageCmd;
+use crate::touch::{AllsMessageCmd, HALT, STAT};
 
 pub struct RingEdge2 {
     pub port: Box<dyn SerialPort>,
@@ -14,12 +15,6 @@ pub struct RingEdge2 {
     read_buffer: [u8; 14],
     pub alls_ports: [Box<dyn SerialPort>; 2],
     pub alls_active: [bool; 2],
-}
-
-impl Drop for RingEdge2 {
-    fn drop(&mut self) {
-        self.port.write("{HALT}".as_bytes()).expect("");
-    }
 }
 
 impl RingEdge2 {
@@ -41,12 +36,17 @@ impl RingEdge2 {
 
     pub fn read(&mut self) {
         if let Err(err) = self.port.read_exact(self.read_buffer[0..6].as_mut()) {
-            if err.kind() == std::io::ErrorKind::TimedOut {
+            if err.kind() == io::ErrorKind::TimedOut {
                 return;
             } else {
                 panic!("{}", err);
             }
         }
+        
+        if self.read_buffer[0] == b'(' {
+            todo!();
+        }
+        
         if self.read_buffer[5] == b')' {
             todo!();
         }
@@ -54,7 +54,7 @@ impl RingEdge2 {
         if let Err(err) = self.port.read_exact(self.read_buffer[6..14].as_mut()) {
             panic!("{}", err);
         }
-
+        debug!("Read: {:02X?}", &self.read_buffer);
         if self.alls_active[0] {
             Self::send_to_alls(
                 self.read_buffer[1..5].as_mut(),
@@ -69,7 +69,7 @@ impl RingEdge2 {
         }
     }
 
-    pub fn parse_command_from_alls(&mut self, msg: AllsMessageCmd) {
+    pub fn parse_command_from_alls(&mut self, msg: AllsMessageCmd) -> io::Result<()> {
         debug!("P{}: {:?}", msg.player_num+1, msg.cmd);
         match msg.cmd {
             AllsTouchMasterCommand::Halt => {
@@ -87,9 +87,7 @@ impl RingEdge2 {
                         AllsTouchMasterCommand::Ratio as u8,
                         value,
                         b')',
-                    ])
-                    .unwrap();
-                self.alls_ports[msg.player_num].flush().unwrap();
+                    ])?;
             }
             AllsTouchMasterCommand::Sens(l_r, area, value) => {
                 self.alls_ports[msg.player_num]
@@ -100,12 +98,11 @@ impl RingEdge2 {
                         AllsTouchMasterCommand::Sens as u8,
                         value,
                         b')',
-                    ])
-                    .unwrap();
-                self.alls_ports[msg.player_num].flush().unwrap();
+                    ])?;
             }
             _ => {}
         };
+        Ok(())
     }
 
     fn send_to_alls(buf: &mut [u8], port: &mut dyn SerialPort) {
@@ -122,11 +119,20 @@ impl RingEdge2 {
             }
 
         }
+        debug!("{:02X?} {:02X?}", &write_buffer, &DEFAULT_ALLS_WRITE_BUFFER);
         if write_buffer.ne(&DEFAULT_ALLS_WRITE_BUFFER) {
             debug!("Touch pressed on {}, {:?}", port.name().unwrap(), &write_buffer);
         }
         port.write(&write_buffer).unwrap();
 
+    }
+}
+
+impl Drop for RingEdge2 {
+    fn drop(&mut self) {
+        if let Err(e) = self.port.write(HALT) {
+            error!("Failed to send HALT: {e}")
+        };
     }
 }
 

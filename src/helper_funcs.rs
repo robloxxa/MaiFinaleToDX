@@ -1,8 +1,9 @@
 use log::debug;
 use serialport;
 use std::io;
-use std::io::{BufWriter, Write};
+use std::io::{BufWriter, Read, Write};
 use std::num::Wrapping;
+use serialport::SerialPort;
 
 pub static SYNC: u8 = 0xE0;
 pub static MARK: u8 = 0xD0;
@@ -128,7 +129,17 @@ pub trait SerialExt: serialport::SerialPort {
     }
 }
 
-impl SerialExt for dyn serialport::SerialPort {}
+pub trait ReadExt: Read {
+    fn read_u8(&mut self) -> io::Result<u8> {
+        let buf = &mut [0u8; 1];
+        self.read(buf)?;
+        Ok(buf[0])
+    }
+}
+
+impl ReadExt for dyn Read {}
+
+impl ReadExt for dyn SerialPort {}
 
 pub fn bit_read(input: &u8, n: usize) -> bool {
     input & (1 << n) != 0
