@@ -6,9 +6,9 @@ use flexi_logger::{colored_opt_format, Logger};
 use log::{error, info, warn};
 
 use std::fs::File;
+use std::io;
 use std::io::{Read, Write};
 use std::thread::JoinHandle;
-use std::io;
 
 mod card_reader;
 mod config;
@@ -16,7 +16,7 @@ mod helper_funcs;
 mod jvs;
 mod keyboard;
 mod touch;
-
+mod packets;
 
 fn main() {
     let args = Config::parse();
@@ -61,7 +61,6 @@ fn main() {
         warn!("\"disable_touch\" was set to True. Touch features disabled")
     }
 
-    // TODO: OVERLAPPED io for jvs, since it sometimes hangs for some reason
     if !config.settings.disable_jvs {
         match jvs::spawn_thread(&config, done_recv.clone()) {
             Ok(jvs) => handles.push(jvs),
@@ -79,9 +78,10 @@ fn main() {
     } else {
         warn!("\"disable_reader\" was set to True. NFC reader proxy disabled")
     }
-    
+
     ctrlc::set_handler(move || {
         info!("Exiting...");
-    }).unwrap();
+    })
+    .unwrap();
     drop(done_send);
 }

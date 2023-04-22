@@ -1,14 +1,14 @@
-use std::io::{Read, Write};
+use log::{debug, info, warn};
+use serialport::{COMPort, SerialPort};
+use std::io::{BufReader, Read, Write};
 use std::os::windows::io::AsRawHandle;
 use std::thread::JoinHandle;
 use std::time::Duration;
 use std::{io, thread};
-use log::{debug, info, warn};
-use serialport::{COMPort, SerialPort};
 use winapi::um::winbase::PACTCTX_SECTION_KEYED_DATA_ASSEMBLY_METADATA;
 
 use crate::config::Config;
-use crate::helper_funcs::{SerialExt, MARK, SYNC, ReadExt};
+use crate::helper_funcs::{ReadExt, SerialExt, MARK, SYNC};
 
 // #[derive(Debug)]
 // #[repr(u8)]
@@ -76,10 +76,11 @@ impl CardReader {
     }
 
     pub fn cmd(&mut self, dest: u8, data: &[u8]) -> io::Result<usize> {
-        self.re2_port
-            .write_aime_packet(dest, &mut self.seq_num, data)?;
-        read_aime_request(self.alls_port.as_mut(), &mut self.data_buffer);
-        self.re2_port.read_aime_packet(&mut self.data_buffer)
+        // self.re2_port .write_aime_packet(dest, &mut self.seq_num, data)?;
+        // read_aime_request(self.alls_port.as_mut(), &mut self.data_buffer);
+        // self.re2_port.read_aime_packet(&mut self.data_buffer)
+
+        Ok(0)
     }
 
     pub fn poll_nfc(&mut self, dest: u8) -> io::Result<usize> {
@@ -88,29 +89,29 @@ impl CardReader {
     }
 }
 
-fn read_aime_request(reader: &mut dyn SerialPort, buf: &mut [u8]) -> io::Result<usize> {
-    reader.read_u8()?;
-    Ok(0)
-}
+// fn read_aime_request(reader: &mut dyn SerialPort, buf: &mut [u8]) -> io::Result<usize> {
+//     reader.read_u8()?;
+//     Ok(0)
+// }
 
 // fn write_aime_request()
 
-
-pub fn spawn_thread(config: &Config, done_recv: crossbeam_channel::Receiver<()>) -> io::Result<JoinHandle<io::Result<()>>> {
+pub fn spawn_thread(
+    config: &Config,
+    done_recv: crossbeam_channel::Receiver<()>,
+) -> io::Result<JoinHandle<io::Result<()>>> {
     let mut reader = CardReader::new(
         config.settings.reader_re2_com.clone(),
         config.settings.reader_alls_com.clone(),
     )?;
-
     // reader.init(0x00)?;
     Ok(thread::spawn(move || -> io::Result<()> {
         // let _ = reader.cmd(0x00, &[CMD_RADIO_ON, 01, 03])?;
         // TODO: Write a proxy
         loop {
             if let Err(_) = done_recv.try_recv() {
-                break
+                break;
             }
-
 
             // let _ = reader.cmd(0x00, &[CMD_RADIO_ON, 01, 03])?;
             // if let Ok(n) = reader.poll_nfc(0x00) {

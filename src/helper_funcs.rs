@@ -1,9 +1,9 @@
 use log::debug;
 use serialport;
+use serialport::SerialPort;
 use std::io;
 use std::io::{BufWriter, Read, Write};
 use std::num::Wrapping;
-use serialport::SerialPort;
 
 pub static SYNC: u8 = 0xE0;
 pub static MARK: u8 = 0xD0;
@@ -135,11 +135,37 @@ pub trait ReadExt: Read {
         self.read(buf)?;
         Ok(buf[0])
     }
+
+    fn read_u8_escaped(&mut self) -> io::Result<u8> {
+        let mut b = self.read_u8()?;
+
+        if b == MARK {
+            b = self.read_u8()?;
+        }
+
+        Ok(b)
+    }
 }
 
-impl ReadExt for dyn Read {}
+impl<T: Read> ReadExt for T {}
 
-impl ReadExt for dyn SerialPort {}
+pub trait WriteExt: Write {
+    fn write_u8(&mut self, b: u8) -> io::Result<()> {
+        self.write(&[b])?;
+        Ok(())
+    }
+
+    fn write_u8_escaped(&mut self, b: u8) -> io::Result<()> {
+        if b == SYNC || b == MARK {
+            let _ = self.write(&[MARK, b - 1])?;
+            Ok(())
+        } else {
+            self.write_u8(b)
+        }
+    }
+}
+
+impl<T: Write> WriteExt for T {}
 
 pub fn bit_read(input: &u8, n: usize) -> bool {
     input & (1 << n) != 0

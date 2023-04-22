@@ -1,3 +1,5 @@
+use crate::helper_funcs::ReadExt;
+use std::io::Read;
 use std::time::Duration;
 
 use serialport::SerialPort;
@@ -34,7 +36,7 @@ impl AllsTouchMasterCommand {
 }
 
 pub struct Alls {
-    pub port: Box<dyn SerialPort>,
+    pub port: serialport::COMPort,
     player_num: usize,
     read_buffer: [u8; 6],
     pub sender_channel: crossbeam_channel::Sender<AllsMessageCmd>,
@@ -46,9 +48,9 @@ impl Alls {
         player_num: usize,
         sender_channel: crossbeam_channel::Sender<AllsMessageCmd>,
     ) -> Result<Self, serialport::Error> {
-        let mut port = serialport::new(port_name, 115_200).open()?;
+        let mut port = serialport::new(port_name, 115_200).open_native()?;
         port.set_timeout(Duration::from_millis(1))?;
-        
+
         Ok(Self {
             port,
             player_num,

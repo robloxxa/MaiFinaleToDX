@@ -36,12 +36,11 @@ pub fn spawn_thread(
     let mut alls_p1_touch = Alls::new(args.touch_alls_p1_com.clone(), 0, sender.clone())?;
     let mut alls_p2_touch = Alls::new(args.touch_alls_p2_com.clone(), 1, sender.clone())?;
 
-    let alls_p1_port = alls_p1_touch.port.try_clone()?;
-    let alls_p2_port = alls_p2_touch.port.try_clone()?;
+    let alls_p1_port = alls_p1_touch.port.try_clone_native()?;
+    let alls_p2_port = alls_p2_touch.port.try_clone_native()?;
 
     let mut re2_touch = RingEdge2::new(args.touch_re2_com.clone(), alls_p1_port, alls_p2_port)?;
     re2_touch.port.write(HALT)?;
-    re2_touch.port.clear(ClearBuffer::Input)?;
     re2_touch.port.write(STAT)?;
 
     let alls_handle = thread::spawn(move || loop {
@@ -54,10 +53,11 @@ pub fn spawn_thread(
 
         loop {
             if let Err(err) = done_recv.try_recv() {
-                break
+                break;
             }
-            rcv.try_iter()
-                .for_each(|c| {re2_touch.parse_command_from_alls(c);});
+            rcv.try_iter().for_each(|c| {
+                re2_touch.parse_command_from_alls(c);
+            });
             re2_touch.read();
         }
 

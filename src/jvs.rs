@@ -27,9 +27,8 @@ static CMD_CONVEY_ID: u8 = 0x15;
 static CMD_READ_DIGITAL: u8 = 0x20;
 type InputMapping = [[Option<c_int>; 8]; 4];
 
-
 pub struct RingEdge2 {
-    pub port: Box<dyn SerialPort>,
+    pub port: serialport::COMPort,
     keyboard: Keyboard,
 
     service_key: c_int,
@@ -44,10 +43,8 @@ impl RingEdge2 {
         port_name: String,
         input_settings: config::Input,
     ) -> Result<Self, serialport::Error> {
-        let mut port = serialport::new(port_name, 115_200).open()?;
+        let mut port = serialport::new(port_name, 115_200).open_native()?;
         port.set_timeout(Duration::from_millis(500))?;
-        port.set_flow_control(FlowControl::None)?;
-        port.clear(ClearBuffer::All)?;
         let input_map = map_input_settings(&input_settings);
         Ok(Self {
             port,
@@ -60,16 +57,17 @@ impl RingEdge2 {
     }
 
     fn cmd(&mut self, dest: u8, data: &[u8]) -> io::Result<usize> {
-        self.port.write_jvs_packet(dest, data)?;
-
-        // FIXME: for some reason it could just stop reading anything
-        self.port.read_jvs_packet(&mut self.data_buffer)
+        // self.port.write_jvs_packet(dest, data)?;
+        //
+        // // FIXME: for some reason it could just stop reading anything
+        // self.port.read_jvs_packet(&mut self.data_buffer)
+        Ok(0)
     }
 
     fn reset(&mut self) -> io::Result<()> {
         let data = [CMD_RESET, CMD_RESET_ARGUMENT];
-        self.port.write_jvs_packet(BROADCAST, &data)?;
-        self.port.write_jvs_packet(BROADCAST, &data)?;
+        // self.port.write_jvs_packet(BROADCAST, &data)?;
+        // self.port.write_jvs_packet(BROADCAST, &data)?;
         Ok(())
     }
 
@@ -187,13 +185,17 @@ fn map_input_settings(settings: &config::Input) -> InputMapping {
     ]
 }
 
-pub fn spawn_thread(args: &Config, done_recv: crossbeam_channel::Receiver<()>) -> io::Result<JoinHandle<io::Result<()>>> {
+pub fn spawn_thread(
+    args: &Config,
+    done_recv: crossbeam_channel::Receiver<()>,
+) -> io::Result<JoinHandle<io::Result<()>>> {
     let mut jvs = RingEdge2::new(args.settings.jvs_re2_com.clone(), args.input.clone())?;
     jvs.init(1)?;
 
     Ok(thread::spawn(move || -> io::Result<()> {
         loop {
-            if let Err(err) = done_recv.try_recv() { break
+            if let Err(err) = done_recv.try_recv() {
+                break;
             }
             if let Err(E) = jvs.read_digital(1) {
                 error!("Jvs error: {}", E);
