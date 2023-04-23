@@ -11,6 +11,8 @@ use crate::config;
 use crate::config::Config;
 use crate::helper_funcs::{bit_read, SerialExt, MARK, SYNC};
 use crate::keyboard::Keyboard;
+use crate::packets::rs232;
+use crate::packets::rs232::Packet;
 
 static BROADCAST: u8 = 0xFF;
 
@@ -35,7 +37,8 @@ pub struct RingEdge2 {
     test_key: c_int,
     input_map: InputMapping,
 
-    data_buffer: [u8; 512],
+    req_packet: rs232::RequestPacket<16>,
+    res_packet: rs232::ResponsePacket<32>,
 }
 
 impl RingEdge2 {
@@ -52,22 +55,29 @@ impl RingEdge2 {
             service_key: input_settings.service,
             test_key: input_settings.test,
             input_map,
-            data_buffer: [0; 512],
+            req_packet: rs232::RequestPacket::default(),
+            res_packet: rs232::ResponsePacket::default(),
         })
     }
 
-    fn cmd(&mut self, dest: u8, data: &[u8]) -> io::Result<usize> {
-        // self.port.write_jvs_packet(dest, data)?;
-        //
-        // // FIXME: for some reason it could just stop reading anything
-        // self.port.read_jvs_packet(&mut self.data_buffer)
-        Ok(0)
+    /// Writes a request packet to JVS Com port and immediately wait for a response, muting self.res_packet
+    fn cmd(&mut self, dest: u8, data: &[u8]) -> io::Result<()> {
+        self.req_packet
+            .set_dest(dest)
+            .set_data(data)
+            .write(&mut self.port)?;
+        self.res_packet.read(&mut self.port)?;
+        Ok(())
     }
 
     fn reset(&mut self) -> io::Result<()> {
-        let data = [CMD_RESET, CMD_RESET_ARGUMENT];
-        // self.port.write_jvs_packet(BROADCAST, &data)?;
-        // self.port.write_jvs_packet(BROADCAST, &data)?;
+        self.req_packet
+            .set_dest(0xFF)
+            .set_data(&[CMD_RESET, CMD_RESET_ARGUMENT]);
+
+        self.req_packet.write(&mut self.port)?;
+        self.req_packet.write(&mut self.port)?;
+
         Ok(())
     }
 
@@ -77,41 +87,50 @@ impl RingEdge2 {
         self.reset()?;
         info!("Reset sent");
         thread::sleep(Duration::from_millis(500));
-        let size = self.cmd(BROADCAST, &[CMD_ASSIGN_ADDRESS, board])?;
+
+        self.cmd(BROADCAST, &[CMD_ASSIGN_ADDRESS, board])?;
         info!(
             "Assigned address {}. Data: {:?}",
             board,
-            &self.data_buffer[..size],
+            self.res_packet.data(),
         );
 
-        let size = self.cmd(board, &[CMD_IDENTIFY])?;
+        self.cmd(board, &[CMD_IDENTIFY])?;
         info!(
             "Board Info: {}",
-            std::str::from_utf8(&self.data_buffer[..size]).unwrap()
+            std::str::from_utf8(self.res_packet.data()).unwrap()
         );
 
-        let size = self.cmd(board, &[CMD_COMMAND_REVISION])?;
+        self.cmd(board, &[CMD_COMMAND_REVISION])?;
         info!(
-            "Command Version Revision: {}{}",
-            "REV",
-            *&self.data_buffer[..size][0] as f32 / 10.0
+            "Command Version Revision: REV{}.{}",
+            self.res_packet.data()[0] / 10,
+            self.res_packet.data()[0] % 10
         );
 
-        let size = self.cmd(board, &[CMD_JVS_VERSION])?;
-        info!("JVS Version: {:?}", &self.data_buffer[..size]);
+        self.cmd(board, &[CMD_JVS_VERSION])?;
+        info!(
+            "JVS Version: {}.{}",
+            self.res_packet.data()[0] / 10,
+            self.res_packet.data()[0] % 10
+        );
 
-        let size = self.cmd(board, &[CMD_COMMS_VERSION])?;
-        info!("Communications Version: {:?}", &self.data_buffer[..size]);
+        self.cmd(board, &[CMD_COMMS_VERSION])?;
+        info!(
+            "Communications Version: {}.{}",
+            self.res_packet.data()[0] / 10,
+            self.res_packet.data()[0] % 10
+        );
 
-        let size = self.cmd(board, &[CMD_CAPABILITIES])?;
-        info!("Feature check: {:?}", &self.data_buffer[..size]);
+        self.cmd(board, &[CMD_CAPABILITIES])?;
+        info!("Feature check: {:02X?}", self.res_packet.data());
 
         Ok(())
     }
 
     fn read_digital(&mut self, board: u8) -> io::Result<()> {
-        let size = self.cmd(board, &[CMD_READ_DIGITAL, 0x02, 0x02])?;
-        let data = &self.data_buffer[..size];
+        self.cmd(board, &[CMD_READ_DIGITAL, 0x02, 0x02])?;
+        let data = self.res_packet.data();
 
         if bit_read(&data[2], 6) {
             self.keyboard.key_down(&self.test_key);

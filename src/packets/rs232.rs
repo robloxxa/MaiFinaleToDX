@@ -9,7 +9,7 @@ const DESTINATION_INDEX: usize = 1;
 const SIZE_INDEX: usize = 2;
 const LEN_OF_HEADER: usize = 3;
 
-trait Packet {
+pub trait Packet {
     const DATA_BEGIN_INDEX: usize;
 
     fn get_buf(&self) -> &[u8];
@@ -161,6 +161,11 @@ impl<const N: usize> ResponsePacket<N> {
     pub fn status(&self) -> u8 {
         self.buffer[Self::STATUS_INDEX]
     }
+
+    pub fn set_status(&mut self, status: u8) -> &mut Self {
+        self.buffer[Self::STATUS_INDEX] = status;
+        self
+    }
 }
 
 impl<const N: usize> Default for ResponsePacket<N> {
@@ -277,5 +282,15 @@ mod tests {
         assert_eq!(packet.data(), &[0x01, 0x02]);
         assert_eq!(packet.status(), 0x01);
         assert_eq!(packet.get_slice(), &[0xE0, 0xFF, 4, 0x01, 0x01, 0x02, 0x07]);
+    }
+
+    #[test]
+    pub fn res_packet_write() {
+        let mut d: Vec<u8> = Vec::new();
+
+        let mut packet: ResponsePacket = ResponsePacket::new(0xFF, &[0x01, 0x02]);
+        packet.write(&mut d).unwrap();
+
+        assert_eq!(&packet.buffer[..packet.len()], d.as_slice());
     }
 }

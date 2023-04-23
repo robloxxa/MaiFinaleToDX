@@ -3,4 +3,4 @@
 /// Note that all Packet structures contains data arrays **WITHOUT SYNC and SUM byte**,
 /// because they are only need when writing/reading from devices.
 ///
-mod rs232;
+pub mod rs232;
