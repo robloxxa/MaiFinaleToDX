@@ -9,6 +9,8 @@ use crate::config::Settings;
 use log::info;
 use serialport::ClearBuffer;
 use std::io::Write;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::{io, thread};
 
@@ -29,7 +31,7 @@ pub struct AllsMessageCmd {
 
 pub fn spawn_thread(
     args: &Settings,
-    done_recv: crossbeam_channel::Receiver<()>,
+    r1: Arc<AtomicBool>,
 ) -> io::Result<(JoinHandle<io::Result<()>>, JoinHandle<io::Result<()>>)> {
     let (sender, receiver) = crossbeam_channel::bounded::<AllsMessageCmd>(10);
 
@@ -43,21 +45,24 @@ pub fn spawn_thread(
     re2_touch.port.write(HALT)?;
     re2_touch.port.write(STAT)?;
 
-    let alls_handle = thread::spawn(move || loop {
-        alls_p1_touch.read();
-        alls_p2_touch.read();
+    let r2 = r1.clone();
+
+    let alls_handle = thread::spawn(move || -> io::Result<()> {
+        while r1.load(Ordering::SeqCst) {
+            alls_p1_touch.read();
+            alls_p2_touch.read();
+        }
+        Ok(())
     });
 
     let re2_handle = thread::spawn(move || -> io::Result<()> {
         let rcv = receiver.clone();
 
-        loop {
-            if let Err(err) = done_recv.try_recv() {
-                break;
+        while r2.load(Ordering::SeqCst) {
+            for c in rcv.try_iter() {
+                re2_touch.parse_command_from_alls(c)?;
             }
-            rcv.try_iter().for_each(|c| {
-                re2_touch.parse_command_from_alls(c);
-            });
+
             re2_touch.read();
         }
 
@@ -66,7 +71,7 @@ pub fn spawn_thread(
         Ok(())
     });
 
-    info!("Touchscreen is enabled, good luck touchin'!");
+    info!("Touchscreen is ready, good luck touchin'!");
     info!("If touchscreen doesn't work, restart the application, go in test menu and exit it so checks run again");
 
     Ok((re2_handle, alls_handle))

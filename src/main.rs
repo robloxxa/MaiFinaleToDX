@@ -8,6 +8,8 @@ use log::{error, info, warn};
 use std::fs::File;
 use std::io;
 use std::io::{Read, Write};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::thread::JoinHandle;
 
 mod card_reader;
@@ -15,8 +17,8 @@ mod config;
 mod helper_funcs;
 mod jvs;
 mod keyboard;
-mod touch;
 mod packets;
+mod touch;
 
 fn main() {
     let args = Config::parse();
@@ -47,10 +49,10 @@ fn main() {
         .start()
         .unwrap();
 
-    let (done_send, done_recv) = crossbeam_channel::unbounded::<()>();
-
+    let running = Arc::new(AtomicBool::new(true));
+    let r = running.clone();
     if !config.settings.disable_touch {
-        match touch::spawn_thread(&config.settings, done_recv.clone()) {
+        match touch::spawn_thread(&config.settings, running.clone()) {
             Ok((re2, alls)) => {
                 handles.push(re2);
                 handles.push(alls);
@@ -62,7 +64,7 @@ fn main() {
     }
 
     if !config.settings.disable_jvs {
-        match jvs::spawn_thread(&config, done_recv.clone()) {
+        match jvs::spawn_thread(&config, running.clone()) {
             Ok(jvs) => handles.push(jvs),
             Err(E) => error!("JVS initialization failed: {}", E),
         }
@@ -71,7 +73,7 @@ fn main() {
     }
 
     if !config.settings.disable_reader {
-        match card_reader::spawn_thread(&config, done_recv.clone()) {
+        match card_reader::spawn_thread(&config, running.clone()) {
             Ok(reader) => handles.push(reader),
             Err(E) => error!("Card reader initialization failed: {}", E),
         }
@@ -80,8 +82,9 @@ fn main() {
     }
 
     ctrlc::set_handler(move || {
-        info!("Exiting...");
+        running.store(false, Ordering::SeqCst);
     })
     .unwrap();
-    drop(done_send);
+
+    while r.load(Ordering::SeqCst) {}
 }

@@ -1,9 +1,11 @@
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 use std::{io, thread};
 
 use std::thread::JoinHandle;
 
-use log::{error, info};
+use log::{debug, error, info};
 use serialport::{ClearBuffer, FlowControl, SerialPort};
 use winapi::ctypes::c_int;
 
@@ -132,6 +134,8 @@ impl RingEdge2 {
         self.cmd(board, &[CMD_READ_DIGITAL, 0x02, 0x02])?;
         let data = self.res_packet.data();
 
+        debug!("{:02X?}", data);
+
         if bit_read(&data[2], 6) {
             self.keyboard.key_down(&self.test_key);
         } else {
@@ -206,16 +210,13 @@ fn map_input_settings(settings: &config::Input) -> InputMapping {
 
 pub fn spawn_thread(
     args: &Config,
-    done_recv: crossbeam_channel::Receiver<()>,
+    running: Arc<AtomicBool>,
 ) -> io::Result<JoinHandle<io::Result<()>>> {
     let mut jvs = RingEdge2::new(args.settings.jvs_re2_com.clone(), args.input.clone())?;
     jvs.init(1)?;
 
     Ok(thread::spawn(move || -> io::Result<()> {
-        loop {
-            if let Err(err) = done_recv.try_recv() {
-                break;
-            }
+        while running.load(Ordering::SeqCst) {
             if let Err(E) = jvs.read_digital(1) {
                 error!("Jvs error: {}", E);
             };

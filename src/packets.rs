@@ -4,3 +4,4 @@
 /// because they are only need when writing/reading from devices.
 ///
 pub mod rs232;
+pub mod rs232c;

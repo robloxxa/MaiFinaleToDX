@@ -5,9 +5,13 @@ use log::debug;
 use std::io;
 
 const SYNC_INDEX: usize = 0;
-const DESTINATION_INDEX: usize = 1;
-const SIZE_INDEX: usize = 2;
-const LEN_OF_HEADER: usize = 3;
+const SIZE_INDEX: usize = 1;
+const DESTINATION_INDEX: usize = 2;
+const SEQUENCE_INDEX: usize = 3;
+const COMMAND_INDEX: usize = 4;
+const REPORT_INDEX: usize = 5;
+
+const LEN_OF_HEADER: usize = 2;
 
 pub trait Packet {
     const DATA_BEGIN_INDEX: usize;
@@ -20,7 +24,7 @@ pub trait Packet {
     }
 
     fn len(&self) -> usize {
-        self.get_buf()[SIZE_INDEX] as usize + LEN_OF_HEADER
+        self.get_buf()[SIZE_INDEX] as usize + 2
     }
 
     fn dest(&self) -> u8 {
@@ -32,16 +36,33 @@ pub trait Packet {
         self
     }
 
+    fn seq_num(&self) -> u8 {
+        self.get_buf()[SEQUENCE_INDEX]
+    }
+
+    fn set_seq_num(&mut self, seq_num: u8) -> &mut Self {
+        self.get_mut_buf()[SEQUENCE_INDEX] = seq_num;
+        self
+    }
+
+    fn cmd(&self) -> u8 {
+        self.get_buf()[COMMAND_INDEX]
+    }
+
+    fn set_cmd(&mut self, cmd: u8) -> &mut Self {
+        self.get_mut_buf()[COMMAND_INDEX] = cmd;
+        self
+    }
+
     fn data(&mut self) -> &[u8] {
         let len = self.len();
         &mut self.get_mut_buf()[Self::DATA_BEGIN_INDEX..len - 1]
     }
 
-    // NOTE: This method **DOES NOT COUNT CHECKSUM**
     fn set_data(&mut self, data: &[u8]) -> &mut Self {
-        let size = data.len() + Self::DATA_BEGIN_INDEX;
-        self.get_mut_buf()[Self::DATA_BEGIN_INDEX..size].copy_from_slice(data);
-        self.get_mut_buf()[SIZE_INDEX] = (size - LEN_OF_HEADER + 1) as u8;
+        self.get_mut_buf()[Self::DATA_BEGIN_INDEX..data.len() + Self::DATA_BEGIN_INDEX]
+            .copy_from_slice(data);
+        self.get_mut_buf()[SIZE_INDEX] = (data.len() + Self::DATA_BEGIN_INDEX - 1) as u8;
         self
     }
 
@@ -67,7 +88,7 @@ pub struct RequestPacket<const N: usize = 256> {
 }
 
 impl<const N: usize> Packet for RequestPacket<N> {
-    const DATA_BEGIN_INDEX: usize = 3;
+    const DATA_BEGIN_INDEX: usize = 5;
 
     fn get_buf(&self) -> &[u8] {
         &self.buffer
@@ -79,10 +100,10 @@ impl<const N: usize> Packet for RequestPacket<N> {
 }
 
 impl<const N: usize> RequestPacket<N> {
-    pub fn new(dest: u8, data: &[u8]) -> Self {
+    pub fn new(dest: u8, cmd: u8, data: &[u8]) -> Self {
         let mut packet = RequestPacket::default();
 
-        packet.set_dest(dest).set_data(data);
+        packet.set_dest(dest).set_cmd(cmd).set_data(data);
 
         packet
     }
@@ -106,7 +127,7 @@ impl<const N: usize> Default for RequestPacket<N> {
     fn default() -> Self {
         let mut buffer = [0u8; N];
         buffer[SYNC_INDEX] = SYNC;
-        buffer[SIZE_INDEX] = 1;
+        buffer[SIZE_INDEX] = ResponsePacket::<N>::DATA_BEGIN_INDEX as u8;
         Self { buffer }
     }
 }
@@ -117,7 +138,7 @@ pub struct ResponsePacket<const N: usize = 256> {
 }
 
 impl<const N: usize> Packet for ResponsePacket<N> {
-    const DATA_BEGIN_INDEX: usize = 4;
+    const DATA_BEGIN_INDEX: usize = 6;
 
     fn get_buf(&self) -> &[u8] {
         &self.buffer
@@ -129,12 +150,10 @@ impl<const N: usize> Packet for ResponsePacket<N> {
 }
 
 impl<const N: usize> ResponsePacket<N> {
-    const STATUS_INDEX: usize = 3;
-
-    pub fn new(dest: u8, data: &[u8]) -> Self {
+    pub fn new(dest: u8, cmd: u8, data: &[u8]) -> Self {
         let mut packet = ResponsePacket::default();
 
-        packet.set_dest(dest).set_data(data);
+        packet.set_dest(dest).set_cmd(cmd).set_data(data);
 
         packet
     }
@@ -153,12 +172,12 @@ impl<const N: usize> ResponsePacket<N> {
         Self { buffer }
     }
 
-    pub fn status(&self) -> u8 {
-        self.buffer[Self::STATUS_INDEX]
+    pub fn report(&self) -> u8 {
+        self.get_buf()[REPORT_INDEX]
     }
 
-    pub fn set_status(&mut self, status: u8) -> &mut Self {
-        self.buffer[Self::STATUS_INDEX] = status;
+    pub fn set_report(&mut self, report: u8) -> &mut Self {
+        self.get_mut_buf()[REPORT_INDEX] = report;
         self
     }
 }
@@ -167,40 +186,33 @@ impl<const N: usize> Default for ResponsePacket<N> {
     fn default() -> Self {
         let mut buffer = [0u8; N];
         buffer[SYNC_INDEX] = SYNC;
-        buffer[SIZE_INDEX] = 2;
-        buffer[Self::STATUS_INDEX] = 1;
+        buffer[SIZE_INDEX] = ResponsePacket::<N>::DATA_BEGIN_INDEX as u8;
         Self { buffer }
     }
 }
 
 pub fn read_packet(reader: &mut dyn ReadExt, buf: &mut [u8]) -> io::Result<usize> {
     buf[SYNC_INDEX] = reader.read_u8()?;
-    buf[DESTINATION_INDEX] = reader.read_u8_escaped()?;
     buf[SIZE_INDEX] = reader.read_u8_escaped()?;
 
     let mut counter: usize = 0;
-
-    // TODO: Add a sum check, its not really necessary but would be great if JVS fails (never happened)
     while counter < buf[SIZE_INDEX] as usize {
         buf[SIZE_INDEX + 1..][counter] = reader.read_u8_escaped()?;
         counter += 1;
     }
 
-    // Add DESTINATION and SIZE bytes to buffer size
     counter += 2;
-
-    debug!("RS232 Read Req: {:02X?}", &buf[..counter]);
 
     Ok(counter)
 }
 
 /// Returns checksum
-pub fn write_packet(writer: &mut dyn WriteExt, buf: &[u8]) -> io::Result<u8> {
+pub fn write_packet(writer: &mut dyn WriteExt, data: &[u8]) -> io::Result<u8> {
     let mut sum: u8 = 0;
 
     writer.write_u8(SYNC)?;
 
-    for &b in &buf[1..buf.len() - 1] {
+    for &b in &data[1..data.len() - 1] {
         writer.write_u8_escaped(b)?;
         sum = sum.wrapping_add(b);
     }
@@ -212,31 +224,32 @@ pub fn write_packet(writer: &mut dyn WriteExt, buf: &[u8]) -> io::Result<u8> {
 
 #[cfg(test)]
 mod tests {
-    use crate::packets::rs232::{Packet, RequestPacket, ResponsePacket};
+    use crate::packets::rs232c::{Packet, RequestPacket, ResponsePacket};
     use std::io::{BufReader, BufWriter};
 
     #[test]
     pub fn req_packet_new() {
+        let d: &[u8] = &[0xE0, 0x06, 0xFF, 0x00, 0x02, 0x01, 0x02];
         let data: &[u8] = &[01, 02];
         let dest = 0xFF;
-        let mut packet: RequestPacket = RequestPacket::new(dest, data);
+        let cmd = 0x02;
+        let mut packet: RequestPacket = RequestPacket::new(dest, cmd, data);
         assert_eq!(packet.dest(), dest);
         assert_eq!(packet.data(), data);
-        assert_eq!(
-            &packet.buffer[..packet.len() - 1],
-            &[0xE0, 0xFF, 0x03, 0x01, 0x02]
-        );
+        assert_eq!(packet.cmd(), cmd);
+        assert_eq!(&packet.buffer[..packet.len() - 1], d,);
     }
 
     #[test]
     pub fn req_packet_new_from_read() {
-        let d: &[u8] = &[0xE0, 0x00, 3, 0x01, 0x02, 0x06];
+        let d: &[u8] = &[0xE0, 0x05, 0x00, 0x00, 0x02, 0x00, 0x07];
 
         let mut buf_reader = BufReader::new(d);
 
         let mut packet: RequestPacket = RequestPacket::new_from_read(&mut buf_reader).unwrap();
         assert_eq!(packet.dest(), 0x00);
-        assert_eq!(packet.data(), &[0x01, 0x02]);
+        assert_eq!(packet.cmd(), 0x02);
+        assert_eq!(packet.data(), &[0x00]);
         assert_eq!(&packet.buffer[..packet.len()], &d[..d.len()]);
     }
 
@@ -244,45 +257,46 @@ mod tests {
     pub fn req_packet_write() {
         let mut d: Vec<u8> = Vec::new();
 
-        let mut packet: RequestPacket<64> = RequestPacket::new(0xFF, &[0x01, 0x02]);
+        let mut packet: RequestPacket<64> = RequestPacket::new(0xFF, 0x02, &[0x01, 0x02]);
         packet.write(&mut d).unwrap();
-
-        assert_eq!(&packet.buffer[..packet.len()], d.as_slice());
+        assert_eq!(packet.get_slice(), d.as_slice());
     }
 
     #[test]
     pub fn res_packet_new() {
-        let mut packet: ResponsePacket = ResponsePacket::new(0xFF, &[0x01, 0x02, 0x03]);
+        let dest = 0xFF;
+        let cmd = 0x02;
+        let d: &[u8] = &[0xE0, 0x08, dest, 0x00, cmd, 0x00, 0x01, 0x02, 0x03, 0x16];
+        let mut packet: ResponsePacket = ResponsePacket::new(0xFF, cmd, &[0x01, 0x02, 0x03]);
 
         assert_eq!(packet.dest(), 0xFF);
         assert_eq!(packet.data(), &[0x01, 0x02, 0x03]);
-        assert_eq!(
-            packet.get_slice(),
-            &[0xE0, 0xFF, 0x05, 0x01, 0x01, 0x02, 0x03, 0x00]
-        );
+        assert_eq!(&packet.buffer[..packet.len() - 1], &d[..d.len() - 1]);
     }
 
     #[test]
     pub fn res_packet_new_from_read() {
-        let d: &[u8] = &[0xE0, 0xFF, 4, 0x01, 0x01, 0x02, 0x07];
+        let dest = 0xFF;
+        let cmd = 0x02;
+        let d: &[u8] = &[0xE0, 0x08, dest, 0x00, cmd, 0x01, 0x01, 0x02, 0x03, 0x16];
 
         let mut buf_reader = BufReader::new(d);
 
         let mut packet: ResponsePacket = ResponsePacket::new_from_read(&mut buf_reader).unwrap();
 
         assert_eq!(packet.dest(), 0xFF);
-        assert_eq!(packet.data(), &[0x01, 0x02]);
-        assert_eq!(packet.status(), 0x01);
-        assert_eq!(packet.get_slice(), &[0xE0, 0xFF, 4, 0x01, 0x01, 0x02, 0x07]);
+        assert_eq!(packet.data(), &[0x01, 0x02, 0x03]);
+        assert_eq!(packet.report(), 0x01);
+        assert_eq!(packet.get_slice(), d);
     }
 
     #[test]
     pub fn res_packet_write() {
         let mut d: Vec<u8> = Vec::new();
 
-        let mut packet: ResponsePacket = ResponsePacket::new(0xFF, &[0x01, 0x02]);
+        let mut packet: ResponsePacket = ResponsePacket::new(0xFF, 0x02, &[0x01, 0x02]);
         packet.write(&mut d).unwrap();
 
-        assert_eq!(&packet.buffer[..packet.len()], d.as_slice());
+        assert_eq!(packet.get_slice(), d.as_slice());
     }
 }
