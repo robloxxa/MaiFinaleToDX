@@ -1,9 +1,9 @@
 use log::debug;
 use serialport;
-use serialport::SerialPort;
+
 use std::io;
 use std::io::{BufWriter, Read, Write};
-use std::num::Wrapping;
+
 
 pub static SYNC: u8 = 0xE0;
 pub static MARK: u8 = 0xD0;

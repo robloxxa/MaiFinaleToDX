@@ -6,12 +6,12 @@ use std::{io, thread};
 use std::thread::JoinHandle;
 
 use log::{debug, error, info};
-use serialport::{ClearBuffer, FlowControl, SerialPort};
+use serialport::SerialPort;
 use winapi::ctypes::c_int;
 
 use crate::config;
 use crate::config::Config;
-use crate::helper_funcs::{bit_read, SerialExt, MARK, SYNC};
+use crate::helper_funcs::bit_read;
 use crate::keyboard::Keyboard;
 use crate::packets::rs232;
 use crate::packets::rs232::Packet;
@@ -217,8 +217,8 @@ pub fn spawn_thread(
 
     Ok(thread::spawn(move || -> io::Result<()> {
         while running.load(Ordering::SeqCst) {
-            if let Err(E) = jvs.read_digital(1) {
-                error!("Jvs error: {}", E);
+            if let Err(err) = jvs.read_digital(1) {
+                error!("Jvs error: {}", err);
             };
 
             // thread::sleep(Duration::from_millis(10));

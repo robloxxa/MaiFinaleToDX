@@ -1,5 +1,3 @@
-#![feature(const_generics_defaults)]
-
 use crate::helper_funcs::{ReadExt, WriteExt, SYNC};
 use log::debug;
 use std::io;
@@ -213,7 +211,7 @@ pub fn write_packet(writer: &mut dyn WriteExt, buf: &[u8]) -> io::Result<u8> {
 #[cfg(test)]
 mod tests {
     use crate::packets::rs232::{Packet, RequestPacket, ResponsePacket};
-    use std::io::{BufReader, BufWriter};
+    use std::io::BufReader;
 
     #[test]
     pub fn req_packet_new() {

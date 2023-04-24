@@ -1,6 +1,5 @@
-use log::{debug, info, warn};
-use serialport::{COMPort, SerialPort};
-use std::io::{BufReader, Read, Write};
+use log::info;
+use serialport::SerialPort;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread::JoinHandle;
@@ -8,7 +7,7 @@ use std::time::Duration;
 use std::{io, thread};
 
 use crate::config::Config;
-use crate::helper_funcs::{ReadExt, SerialExt, MARK, SYNC};
+
 use crate::packets::rs232c;
 use crate::packets::rs232c::Packet;
 

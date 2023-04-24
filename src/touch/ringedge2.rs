@@ -7,7 +7,7 @@ use serialport::{COMPort, SerialPort};
 
 use crate::helper_funcs::bit_read;
 use crate::touch::alls::AllsTouchMasterCommand;
-use crate::touch::{AllsMessageCmd, HALT, STAT};
+use crate::touch::{AllsMessageCmd, HALT};
 
 pub struct RingEdge2 {
     pub port: COMPort,

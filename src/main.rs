@@ -3,7 +3,7 @@ use clap;
 use clap::Parser;
 use clap_serde_derive::ClapSerde;
 use flexi_logger::{colored_opt_format, Logger};
-use log::{error, info, warn};
+use log::{error, warn};
 
 use std::fs::File;
 use std::io;
@@ -57,7 +57,7 @@ fn main() {
                 handles.push(re2);
                 handles.push(alls);
             }
-            Err(E) => error!("Touchscreen initialization failed: {}", E),
+            Err(err) => error!("Touchscreen initialization failed: {}", err),
         };
     } else {
         warn!("\"disable_touch\" was set to True. Touch features disabled")
@@ -66,7 +66,7 @@ fn main() {
     if !config.settings.disable_jvs {
         match jvs::spawn_thread(&config, running.clone()) {
             Ok(jvs) => handles.push(jvs),
-            Err(E) => error!("JVS initialization failed: {}", E),
+            Err(err) => error!("JVS initialization failed: {}", err),
         }
     } else {
         warn!("\"disable_jvs\" was set to True. JVS features disabled")
@@ -75,7 +75,7 @@ fn main() {
     if !config.settings.disable_reader {
         match card_reader::spawn_thread(&config, running.clone()) {
             Ok(reader) => handles.push(reader),
-            Err(E) => error!("Card reader initialization failed: {}", E),
+            Err(err) => error!("Card reader initialization failed: {}", err),
         }
     } else {
         warn!("\"disable_reader\" was set to True. NFC reader proxy disabled")
