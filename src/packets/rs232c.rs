@@ -55,6 +55,11 @@ pub trait Packet {
 
     fn data(&mut self) -> &[u8] {
         let len = self.len();
+        &self.get_mut_buf()[Self::DATA_BEGIN_INDEX..len - 1]
+    }
+
+    fn mut_data(&mut self) -> &mut [u8] {
+        let len = self.len();
         &mut self.get_mut_buf()[Self::DATA_BEGIN_INDEX..len - 1]
     }
 

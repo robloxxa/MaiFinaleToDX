@@ -2,6 +2,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use std::{io, thread};
+use std::io::BufWriter;
 
 use std::thread::JoinHandle;
 
@@ -40,7 +41,7 @@ pub struct RingEdge2 {
     input_map: InputMapping,
 
     req_packet: rs232::RequestPacket<16>,
-    res_packet: rs232::ResponsePacket<32>,
+    res_packet: rs232::ResponsePacket<128>,
 }
 
 impl RingEdge2 {
@@ -64,10 +65,12 @@ impl RingEdge2 {
 
     /// Writes a request packet to JVS Com port and immediately wait for a response, muting self.res_packet
     fn cmd(&mut self, dest: u8, data: &[u8]) -> io::Result<()> {
+        let mut buf_writer = BufWriter::with_capacity(128, &mut self.port);
         self.req_packet
             .set_dest(dest)
             .set_data(data)
-            .write(&mut self.port)?;
+            .write(&mut buf_writer)?;
+        drop(buf_writer);
         self.res_packet.read(&mut self.port)?;
         Ok(())
     }
@@ -132,10 +135,10 @@ impl RingEdge2 {
 
     fn read_digital(&mut self, board: u8) -> io::Result<()> {
         self.cmd(board, &[CMD_READ_DIGITAL, 0x02, 0x02])?;
+
+        debug!("{:02X?}", self.res_packet.get_slice());
+
         let data = self.res_packet.data();
-
-        debug!("{:02X?}", data);
-
         if bit_read(&data[2], 6) {
             self.keyboard.key_down(&self.test_key);
         } else {

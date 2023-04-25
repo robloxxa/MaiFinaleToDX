@@ -1,10 +1,12 @@
-use log::info;
-use serialport::SerialPort;
+use log::{debug, info, warn};
+use serialport;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::time::Duration;
 use std::{io, thread};
+use std::io::{BufReader, BufWriter};
+use serialport::SerialPort;
 
 use crate::config::Config;
 
@@ -31,18 +33,17 @@ static CMD_RADIO_OFF: u8 = 0x41;
 static CMD_POLL: u8 = 0x42;
 
 pub struct CardReader {
-    re2_port: Box<dyn SerialPort>,
-    alls_port: Box<dyn SerialPort>,
+    re2_port: serialport::COMPort,
+    alls_port: serialport::COMPort,
     req_packet: rs232c::RequestPacket<128>,
     res_packet: rs232c::ResponsePacket<128>,
-    id_buffer: [u8; 64],
 }
 
 impl CardReader {
     pub fn new(re2_port_name: String, alls_port_name: String) -> Result<Self, serialport::Error> {
-        let mut re2_port = serialport::new(re2_port_name, 38_400).open()?;
-        let mut alls_port = serialport::new(alls_port_name, 115_200).open()?;
-        re2_port.set_timeout(Duration::from_millis(0))?;
+        let mut re2_port = serialport::new(re2_port_name, 38_400).open_native()?;
+        let mut alls_port = serialport::new(alls_port_name, 115_200).open_native()?;
+        re2_port.set_timeout(Duration::from_millis(200))?;
         alls_port.set_timeout(Duration::from_millis(0))?;
 
         Ok(Self {
@@ -50,7 +51,6 @@ impl CardReader {
             alls_port,
             req_packet: rs232c::RequestPacket::default(),
             res_packet: rs232c::ResponsePacket::default(),
-            id_buffer: [0; 64],
         })
     }
 
@@ -105,13 +105,42 @@ pub fn spawn_thread(
         // let _ = reader.cmd(0x00, &[CMD_RADIO_ON, 01, 03])?;
         // TODO: Write a proxy
         while running.load(Ordering::SeqCst) {
-            reader.req_packet.read(&mut reader.alls_port)?;
-
-            reader.req_packet.write(&mut reader.re2_port)?;
-
-            reader.res_packet.read(&mut reader.re2_port)?;
-
-            reader.res_packet.write(&mut reader.alls_port)?;
+            if let Err(e) = reader.req_packet.read(&mut reader.alls_port) {
+                continue
+            };
+            // if reader.req_packet.dest() == 0x00 {
+            //     reader.req_packet.set_dest(0x01);
+            // }
+            if reader.req_packet.cmd() == 0x71 {
+                warn!("ALLS 71 code: {:02X?}", reader.req_packet.data());
+            }
+            debug!("ALLS Request: {:02X?} ", reader.req_packet.get_slice());
+            let mut re2_buf_writer = BufWriter::with_capacity(128, &mut reader.re2_port);
+            reader.req_packet.write(&mut re2_buf_writer)?;
+            if reader.req_packet.cmd() == 0xF5 {
+                continue
+            }
+            drop(re2_buf_writer);
+            if let Err(e) = reader.res_packet.read(&mut reader.re2_port) {
+                debug!("{e}");
+                continue
+            }
+            // if reader.res_packet.dest() == 0x01 {
+            //     reader.res_packet.set_dest(0x00);
+            // }
+            debug!("Reader RE2 Response: {:02X?} ", reader.res_packet.get_slice());
+            let mut alls_buf_writer = BufWriter::with_capacity(128, &mut reader.alls_port);
+            if reader.res_packet.cmd() == 0x71 {
+                warn!("{:02X?}", reader.res_packet.data());
+            }
+            if reader.res_packet.cmd() == 0x42 && reader.res_packet.data().len() > 8 {
+                reader.res_packet.mut_data()[12..].copy_from_slice(&[0x00, 0xF1, 0x00, 0x00,
+                    0x00, 0x01, 0x43, 0x00]);
+                // reader.res_packet.mut_data()[4] = 0x01;
+                // reader.res_packet.mut_data()[5] = 0x2E;
+                warn!("RE2 Sended CARD: {:02X?}", reader.res_packet.data());
+            }
+            reader.res_packet.write(&mut alls_buf_writer)?;
             // let _ = reader.cmd(0x00, &[CMD_RADIO_ON, 01, 03])?;
             // if let Ok(n) = reader.poll_nfc(0x00) {
             //     if n > 2 {

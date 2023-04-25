@@ -17,6 +17,8 @@ pub struct RingEdge2 {
     pub alls_active: [bool; 2],
 }
 
+// TODO: Send data over channel to
+
 impl RingEdge2 {
     pub fn new(
         port_name: String,
@@ -111,7 +113,7 @@ impl RingEdge2 {
                 }
             }
         }
-        debug!("{:02X?} {:02X?}", &write_buffer, &DEFAULT_ALLS_WRITE_BUFFER);
+        // debug!("{:02X?} {:02X?}", &write_buffer, &DEFAULT_ALLS_WRITE_BUFFER);
         if write_buffer.ne(&DEFAULT_ALLS_WRITE_BUFFER) {
             debug!(
                 "Touch pressed on {}, {:?}",

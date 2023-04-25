@@ -3,7 +3,7 @@ use clap;
 use clap::Parser;
 use clap_serde_derive::ClapSerde;
 use flexi_logger::{colored_opt_format, Logger};
-use log::{error, warn};
+use log::{error, info, warn};
 
 use std::fs::File;
 use std::io;
@@ -87,4 +87,9 @@ fn main() {
     .unwrap();
 
     while r.load(Ordering::SeqCst) {}
+
+    for b in 0..handles.len() {
+        handles.pop().unwrap().join().unwrap();
+    }
+    info!("Exiting...")
 }

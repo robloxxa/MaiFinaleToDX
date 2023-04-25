@@ -177,7 +177,6 @@ pub fn read_packet(reader: &mut dyn ReadExt, buf: &mut [u8]) -> io::Result<usize
     buf[SIZE_INDEX] = reader.read_u8_escaped()?;
 
     let mut counter: usize = 0;
-
     // TODO: Add a sum check, its not really necessary but would be great if JVS fails (never happened)
     while counter < buf[SIZE_INDEX] as usize {
         buf[SIZE_INDEX + 1..][counter] = reader.read_u8_escaped()?;
@@ -185,9 +184,7 @@ pub fn read_packet(reader: &mut dyn ReadExt, buf: &mut [u8]) -> io::Result<usize
     }
 
     // Add DESTINATION and SIZE bytes to buffer size
-    counter += 2;
-
-    debug!("RS232 Read Req: {:02X?}", &buf[..counter]);
+    counter += 3;
 
     Ok(counter)
 }
