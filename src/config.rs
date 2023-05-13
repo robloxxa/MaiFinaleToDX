@@ -68,6 +68,9 @@ pub struct Settings {
 
     #[arg(long, default_value = "COM1")]
     pub reader_alls_com: String,
+
+    #[arg(long)]
+    pub reader_device_file: Option<String>,
 }
 
 #[derive(ClapSerde, Deserialize, Serialize, Debug, Clone)]
