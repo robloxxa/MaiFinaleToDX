@@ -47,6 +47,9 @@ pub struct Settings {
     #[arg(long, default_value = "false", action=ArgAction::SetTrue)]
     pub disable_reader: bool,
 
+    #[arg(long, default_value = "false", action=ArgAction::SetTrue)]
+    pub disable_spice_api: bool,
+
     /// COM Port for Finale touch
     #[arg(long, default_value = "COM23")]
     pub touch_re2_com: String,
@@ -66,11 +69,11 @@ pub struct Settings {
     #[arg(long, default_value = "COM22")]
     pub reader_re2_com: String,
 
-    #[arg(long, default_value = "COM1")]
-    pub reader_alls_com: String,
-
     #[arg(long)]
     pub reader_device_file: Option<String>,
+
+    #[arg(long, default_value = "1337")]
+    pub spice_port: String,
 }
 
 #[derive(ClapSerde, Deserialize, Serialize, Debug, Clone)]

@@ -1,14 +1,19 @@
 
 use std::io::Read;
 use std::time::Duration;
+use log::debug;
 
-use serialport::SerialPort;
+use serialport::{ClearBuffer, SerialPort};
 
-use crate::touch::AllsMessageCmd;
+
+pub struct MessageCmd {
+    pub player_num: usize,
+    pub cmd: TouchMasterCommand,
+}
 
 #[repr(u8)]
 #[derive(Debug)]
-pub enum AllsTouchMasterCommand {
+pub enum TouchMasterCommand {
     // { R S E T } Tells Touchscreen to reset, have no idea what to do with it
     Reset = b'E',
     // { H A L T } Tells Touchscreen to stop sending data
@@ -22,35 +27,37 @@ pub enum AllsTouchMasterCommand {
     Unknown,
 }
 
-impl AllsTouchMasterCommand {
-    pub fn from_buf(buf: &[u8]) -> AllsTouchMasterCommand {
+impl TouchMasterCommand {
+    pub fn from_buf(buf: &[u8]) -> TouchMasterCommand {
         match buf[3] {
-            b'E' => AllsTouchMasterCommand::Reset,
-            b'L' => AllsTouchMasterCommand::Halt,
-            b'A' => AllsTouchMasterCommand::Stat,
-            b'k' => AllsTouchMasterCommand::Sens(buf[1], buf[2], buf[4]),
-            b'r' => AllsTouchMasterCommand::Ratio(buf[1], buf[2], buf[4]),
-            _ => AllsTouchMasterCommand::Unknown,
+            b'E' => TouchMasterCommand::Reset,
+            b'L' => TouchMasterCommand::Halt,
+            b'A' => TouchMasterCommand::Stat,
+            b'k' => TouchMasterCommand::Sens(buf[1], buf[2], buf[4]),
+            b'r' => TouchMasterCommand::Ratio(buf[1], buf[2], buf[4]),
+            _ => {
+                TouchMasterCommand::Unknown
+            },
         }
     }
 }
 
-pub struct Alls {
+pub struct Deluxe {
     pub port: serialport::COMPort,
     player_num: usize,
     read_buffer: [u8; 6],
-    pub sender_channel: crossbeam_channel::Sender<AllsMessageCmd>,
+    pub sender_channel: crossbeam_channel::Sender<MessageCmd>,
 }
 
-impl Alls {
+impl Deluxe {
     pub fn new(
         port_name: String,
         player_num: usize,
-        sender_channel: crossbeam_channel::Sender<AllsMessageCmd>,
+        sender_channel: crossbeam_channel::Sender<MessageCmd>,
     ) -> Result<Self, serialport::Error> {
         let mut port = serialport::new(port_name, 115_200).open_native()?;
         port.set_timeout(Duration::from_millis(1))?;
-
+        port.clear(ClearBuffer::All)?;
         Ok(Self {
             port,
             player_num,
@@ -60,17 +67,17 @@ impl Alls {
     }
 
     pub fn read(&mut self) {
-        if let Err(err) = self.port.read(self.read_buffer.as_mut()) {
+        if let Err(err) = self.port.read_exact(self.read_buffer.as_mut()) {
             if err.kind() == std::io::ErrorKind::TimedOut {
                 return;
             } else {
                 panic!("{}", err);
             }
         }
-        let cmd = AllsTouchMasterCommand::from_buf(self.read_buffer.as_ref());
+        let cmd = TouchMasterCommand::from_buf(self.read_buffer.as_ref());
 
         self.sender_channel
-            .send(AllsMessageCmd {
+            .send(MessageCmd {
                 player_num: self.player_num,
                 cmd,
             })

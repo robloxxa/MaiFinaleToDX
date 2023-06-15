@@ -6,15 +6,15 @@ use std::time::Duration;
 use serialport::{COMPort, SerialPort};
 
 use crate::helper_funcs::bit_read;
-use crate::touch::alls::AllsTouchMasterCommand;
-use crate::touch::{AllsMessageCmd, HALT};
+use crate::touch::deluxe::TouchMasterCommand;
+use crate::touch::{MessageCmd, HALT};
 
 pub struct RingEdge2 {
     pub port: COMPort,
 
     read_buffer: [u8; 14],
-    pub alls_ports: [COMPort; 2],
-    pub alls_active: [bool; 2],
+    pub deluxe_ports: [COMPort; 2],
+    pub deluxe_active: [bool; 2],
 }
 
 // TODO: Send data over channel to
@@ -22,8 +22,8 @@ pub struct RingEdge2 {
 impl RingEdge2 {
     pub fn new(
         port_name: String,
-        alls_p1_port: COMPort,
-        alls_p2_port: COMPort,
+        deluxe_p1_port: COMPort,
+        deluxe_p2_port: COMPort,
     ) -> Result<Self, serialport::Error> {
         let mut port = serialport::new(port_name, 9600).open_native()?;
         port.set_timeout(Duration::from_millis(0))?;
@@ -31,13 +31,13 @@ impl RingEdge2 {
         Ok(Self {
             port,
             read_buffer: [0; 14],
-            alls_ports: [alls_p1_port, alls_p2_port],
-            alls_active: [false, false],
+            deluxe_ports: [deluxe_p1_port, deluxe_p2_port],
+            deluxe_active: [false, false],
         })
     }
 
     pub fn read(&mut self) {
-        if let Err(err) = self.port.read_exact(self.read_buffer[0..6].as_mut()) {
+        if let Err(err) = self.port.read_exact(self.read_buffer[0..14].as_mut()) {
             if err.kind() == io::ErrorKind::TimedOut {
                 return;
             } else {
@@ -45,52 +45,55 @@ impl RingEdge2 {
             }
         }
 
-        if self.read_buffer[0] != b'(' {
-            todo!();
+        // if self.read_buffer[0] != b'(' {
+        //     todo!();
+        // }
+        //
+        // if self.read_buffer[5] == b')' {
+        //     todo!();
+        // }
+        //
+        // if let Err(err) = self.port.read_exact(self.read_buffer[6..14].as_mut()) {
+        //     panic!("{}", err);
+        // }
+
+        if self.deluxe_active[0] {
+            Self::send_to_deluxe(self.read_buffer[1..5].as_mut(), &mut self.deluxe_ports[0]);
         }
 
-        if self.read_buffer[5] == b')' {
-            todo!();
-        }
-
-        if let Err(err) = self.port.read_exact(self.read_buffer[6..14].as_mut()) {
-            panic!("{}", err);
-        }
-        debug!("Read: {:02X?}", &self.read_buffer);
-        if self.alls_active[0] {
-            Self::send_to_alls(self.read_buffer[1..5].as_mut(), &mut self.alls_ports[0]);
-        }
-
-        if self.alls_active[1] {
-            Self::send_to_alls(self.read_buffer[7..11].as_mut(), &mut self.alls_ports[1]);
+        if self.deluxe_active[1] {
+            Self::send_to_deluxe(self.read_buffer[7..11].as_mut(), &mut self.deluxe_ports[1]);
         }
     }
 
-    pub fn parse_command_from_alls(&mut self, msg: AllsMessageCmd) -> io::Result<()> {
+    pub fn parse_command_from_alls(&mut self, msg: MessageCmd) -> io::Result<()> {
         debug!("P{}: {:?}", msg.player_num + 1, msg.cmd);
         match msg.cmd {
-            AllsTouchMasterCommand::Halt => {
-                self.alls_active[msg.player_num] = false;
+            TouchMasterCommand::Reset => {
+                self.deluxe_active[msg.player_num] = false;
             }
-            AllsTouchMasterCommand::Stat => {
-                self.alls_active[msg.player_num] = true;
+            TouchMasterCommand::Halt => {
+                self.deluxe_active[msg.player_num] = false;
             }
-            AllsTouchMasterCommand::Ratio(l_r, area, value) => {
-                self.alls_ports[msg.player_num].write(&[
+            TouchMasterCommand::Stat => {
+                self.deluxe_active[msg.player_num] = true;
+            }
+            TouchMasterCommand::Ratio(l_r, area, value) => {
+                self.deluxe_ports[msg.player_num].write(&[
                     b'(',
                     l_r,
                     area,
-                    AllsTouchMasterCommand::Ratio as u8,
+                    TouchMasterCommand::Ratio as u8,
                     value,
                     b')',
                 ])?;
             }
-            AllsTouchMasterCommand::Sens(l_r, area, value) => {
-                self.alls_ports[msg.player_num].write(&[
+            TouchMasterCommand::Sens(l_r, area, value) => {
+                self.deluxe_ports[msg.player_num].write(&[
                     b'(',
                     l_r,
                     area,
-                    AllsTouchMasterCommand::Sens as u8,
+                    TouchMasterCommand::Sens as u8,
                     value,
                     b')',
                 ])?;
@@ -100,8 +103,8 @@ impl RingEdge2 {
         Ok(())
     }
 
-    fn send_to_alls(buf: &mut [u8], port: &mut dyn SerialPort) {
-        let mut write_buffer = DEFAULT_ALLS_WRITE_BUFFER;
+    fn send_to_deluxe(buf: &mut [u8], port: &mut dyn SerialPort) {
+        let mut write_buffer = DEFAULT_DELUXE_WRITE_BUFFER;
         for (i, bit) in buf.iter().enumerate() {
             for pos in 0..5 as usize {
                 if !bit_read(bit, pos) {
@@ -114,7 +117,7 @@ impl RingEdge2 {
             }
         }
         // debug!("{:02X?} {:02X?}", &write_buffer, &DEFAULT_ALLS_WRITE_BUFFER);
-        if write_buffer.ne(&DEFAULT_ALLS_WRITE_BUFFER) {
+        if write_buffer.ne(&DEFAULT_DELUXE_WRITE_BUFFER) {
             debug!(
                 "Touch pressed on {}, {:?}",
                 port.name().unwrap(),
@@ -133,7 +136,7 @@ impl Drop for RingEdge2 {
     }
 }
 
-static DEFAULT_ALLS_WRITE_BUFFER: [u8; 9] = [b'(', 0, 0, 0, 0, 0, 0, 0, b')'];
+static DEFAULT_DELUXE_WRITE_BUFFER: [u8; 9] = [b'(', 0, 0, 0, 0, 0, 0, 0, b')'];
 
 static FINALE_AREAS: [[Option<[(usize, u8); 3]>; 5]; 4] = [
     [
@@ -166,8 +169,8 @@ static FINALE_AREAS: [[Option<[(usize, u8); 3]>; 5]; 4] = [
     ],
 ];
 
-/// Mapping for Maimai ALLs touch areas
-/// (usize, u8) = (Index of ALLS_WRITE_BUFFER, Bit Position)
+/// Mapping for Deluxe touch areas
+/// (usize, u8) = (Index of DELUXE_WRITE_BUFFER, Bit Position)
 static A1: (usize, u8) = (1, 1);
 static A2: (usize, u8) = (1, 2);
 static A3: (usize, u8) = (1, 4);

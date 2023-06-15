@@ -11,6 +11,7 @@ use std::io::{Read, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread::JoinHandle;
+use winapi::um::timeapi;
 
 mod card_reader;
 mod config;
@@ -21,6 +22,10 @@ mod packets;
 mod touch;
 
 fn main() {
+    unsafe {
+        timeapi::timeBeginPeriod(1);
+    }
+
     let args = Config::parse();
     if args.create_config {
         let mut file =
@@ -82,14 +87,15 @@ fn main() {
     }
 
     ctrlc::set_handler(move || {
-        running.store(false, Ordering::SeqCst);
+        info!("Exiting...");
+        running.store(false, Ordering::Release);
     })
     .unwrap();
 
-    while r.load(Ordering::SeqCst) {}
+    for b in 0..dbg!(handles.len()) {
 
-    for b in 0..handles.len() {
-        handles.pop().unwrap().join().unwrap();
+        if let Err(e) = handles.pop().unwrap().join() {
+            error!("Thread panicked, {:?}", e);
+        }
     }
-    info!("Exiting...")
 }

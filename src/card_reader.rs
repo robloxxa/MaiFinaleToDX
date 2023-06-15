@@ -37,8 +37,7 @@ static CMD_RADIO_OFF: u8 = 0x41;
 static CMD_POLL: u8 = 0x42;
 
 pub struct CardReader {
-    re2_port: serialport::COMPort,
-    alls_port: serialport::COMPort,
+    buf_writer: BufWriter<serialport::COMPort>,
     req_packet: rs232c::RequestPacket<128>,
     res_packet: rs232c::ResponsePacket<128>,
 }
@@ -46,13 +45,10 @@ pub struct CardReader {
 impl CardReader {
     pub fn new(re2_port_name: String, alls_port_name: String) -> Result<Self, serialport::Error> {
         let mut re2_port = serialport::new(re2_port_name, 38_400).open_native()?;
-        let mut alls_port = serialport::new(alls_port_name, 115_200).open_native()?;
-        re2_port.set_timeout(Duration::from_millis(1000))?;
-        alls_port.set_timeout(Duration::from_millis(0))?;
+        re2_port.set_timeout(Duration::from_millis(5000))?;
 
         Ok(Self {
-            re2_port,
-            alls_port,
+            buf_writer: BufWriter::new(re2_port),
             req_packet: rs232c::RequestPacket::default(),
             res_packet: rs232c::ResponsePacket::default(),
         })
@@ -82,9 +78,8 @@ impl CardReader {
             .set_dest(dest)
             .set_cmd(cmd)
             .set_data(data)
-            .write(&mut self.re2_port)?;
-        self.res_packet.read(&mut self.re2_port)?;
-
+            .write(&mut self.buf_writer)?;
+        self.res_packet.read(self.buf_writer.get_mut())?;
         Ok(())
     }
 }
@@ -108,13 +103,12 @@ pub fn spawn_thread(
         return Err(io::Error::new(io::ErrorKind::InvalidData,"The reader_device_file is empty, NFC reader is disabled."))
     }
     let path = config.settings.reader_device_file.clone().unwrap();
-    debug!("{path}");
     // reader.init(0x00)?;
     Ok(thread::spawn(move || -> io::Result<()> {
         let mut kb = Keyboard::new();
         reader.init(00).expect("Init failed");
         reader.cmd(00, CMD_RADIO_ON, &[01, 03])?;
-        while running.load(Ordering::SeqCst) {
+        while running.load(Ordering::Acquire) {
             if let Err(e) = reader.cmd(00, CMD_POLL, &[00]) {
                 debug!("timeout")
             }
@@ -129,6 +123,7 @@ pub fn spawn_thread(
                 thread::sleep(Duration::from_secs(2));
                 kb.key_up(&VK_RETURN);
             }
+            thread::sleep(Duration::from_millis(250));
         }
         Ok(())
     }))

@@ -223,6 +223,8 @@ pub fn write_packet(writer: &mut dyn WriteExt, data: &[u8]) -> io::Result<u8> {
 
     writer.write_u8_escaped(sum)?;
 
+    writer.flush()?;
+
     Ok(sum)
 }
 

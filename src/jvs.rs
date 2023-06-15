@@ -33,7 +33,7 @@ static CMD_READ_DIGITAL: u8 = 0x20;
 type InputMapping = [[Option<c_int>; 8]; 4];
 
 pub struct RingEdge2 {
-    pub port: serialport::COMPort,
+    pub buf_writer: BufWriter<serialport::COMPort>,
     keyboard: Keyboard,
 
     service_key: c_int,
@@ -53,7 +53,7 @@ impl RingEdge2 {
         port.set_timeout(Duration::from_millis(500))?;
         let input_map = map_input_settings(&input_settings);
         Ok(Self {
-            port,
+            buf_writer: BufWriter::new(port),
             keyboard: Keyboard::new(),
             service_key: input_settings.service,
             test_key: input_settings.test,
@@ -65,13 +65,11 @@ impl RingEdge2 {
 
     /// Writes a request packet to JVS Com port and immediately wait for a response, muting self.res_packet
     fn cmd(&mut self, dest: u8, data: &[u8]) -> io::Result<()> {
-        let mut buf_writer = BufWriter::with_capacity(128, &mut self.port);
         self.req_packet
             .set_dest(dest)
             .set_data(data)
-            .write(&mut buf_writer)?;
-        drop(buf_writer);
-        self.res_packet.read(&mut self.port)?;
+            .write(&mut self.buf_writer)?;
+        self.res_packet.read(self.buf_writer.get_mut())?;
         Ok(())
     }
 
@@ -80,55 +78,54 @@ impl RingEdge2 {
             .set_dest(0xFF)
             .set_data(&[CMD_RESET, CMD_RESET_ARGUMENT]);
 
-        self.req_packet.write(&mut self.port)?;
-        self.req_packet.write(&mut self.port)?;
+        self.req_packet.write(self.buf_writer.get_mut())?;
+        self.req_packet.write(self.buf_writer.get_mut())?;
 
         Ok(())
     }
 
     pub fn init(&mut self, board: u8) -> io::Result<()> {
-        info!("Initializing JVS");
+        info!("JVS: Initializing");
 
         self.reset()?;
-        info!("Reset sent");
+        info!("JVS: Reset sent");
         thread::sleep(Duration::from_millis(500));
 
         self.cmd(BROADCAST, &[CMD_ASSIGN_ADDRESS, board])?;
         info!(
-            "Assigned address {}. Data: {:?}",
+            "JVS: Assigned address {}",
             board,
-            self.res_packet.data(),
         );
 
         self.cmd(board, &[CMD_IDENTIFY])?;
         info!(
-            "Board Info: {}",
+            "JVS: Board Info: {}",
             std::str::from_utf8(self.res_packet.data()).unwrap()
         );
 
         self.cmd(board, &[CMD_COMMAND_REVISION])?;
         info!(
-            "Command Version Revision: REV{}.{}",
+            "JVS: Command Version Revision: REV{}.{}",
             self.res_packet.data()[0] / 10,
             self.res_packet.data()[0] % 10
         );
 
         self.cmd(board, &[CMD_JVS_VERSION])?;
         info!(
-            "JVS Version: {}.{}",
+            "JVS: JVS Version: {}.{}",
             self.res_packet.data()[0] / 10,
             self.res_packet.data()[0] % 10
         );
 
         self.cmd(board, &[CMD_COMMS_VERSION])?;
         info!(
-            "Communications Version: {}.{}",
+            "JVS: Communications Version: {}.{}",
             self.res_packet.data()[0] / 10,
             self.res_packet.data()[0] % 10
         );
 
         self.cmd(board, &[CMD_CAPABILITIES])?;
-        info!("Feature check: {:02X?}", self.res_packet.data());
+        info!("JVS: Feature check: {:02X?}", self.res_packet.data());
 
         Ok(())
     }
@@ -136,7 +133,7 @@ impl RingEdge2 {
     fn read_digital(&mut self, board: u8) -> io::Result<()> {
         self.cmd(board, &[CMD_READ_DIGITAL, 0x02, 0x02])?;
 
-        debug!("{:02X?}", self.res_packet.get_slice());
+        // debug!("{:02X?}", self.res_packet.get_slice());
 
         let data = self.res_packet.data();
         if bit_read(&data[2], 6) {
@@ -219,12 +216,10 @@ pub fn spawn_thread(
     jvs.init(1)?;
 
     Ok(thread::spawn(move || -> io::Result<()> {
-        while running.load(Ordering::SeqCst) {
+        while running.load(Ordering::Acquire) {
             if let Err(err) = jvs.read_digital(1) {
-                error!("Jvs error: {}", err);
+                error!("JVS: error: {}", err);
             };
-
-            // thread::sleep(Duration::from_millis(10));
         }
 
         Ok(())

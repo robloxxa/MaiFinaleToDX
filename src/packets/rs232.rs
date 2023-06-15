@@ -1,5 +1,4 @@
 use crate::helper_funcs::{ReadExt, WriteExt, SYNC};
-use log::debug;
 use std::io;
 
 const SYNC_INDEX: usize = 0;
@@ -201,7 +200,7 @@ pub fn write_packet(writer: &mut dyn WriteExt, buf: &[u8]) -> io::Result<u8> {
     }
 
     writer.write_u8_escaped(sum)?;
-
+    writer.flush()?;
     Ok(sum)
 }
 
