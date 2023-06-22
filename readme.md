@@ -4,8 +4,7 @@ The most non-elegant way of making Maimai Deluxe playable on Maimai Finale Cabin
 
 # Setup
 
-1. [Download]() the latest version from Release page
-2. Run
+TBD
 
 # About
 
