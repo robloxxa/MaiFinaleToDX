@@ -1,5 +1,4 @@
 use crate::config::Config;
-use clap;
 use clap::Parser;
 use clap_serde_derive::ClapSerde;
 use flexi_logger::{colored_opt_format, Logger};
@@ -31,7 +30,7 @@ fn main() {
         let mut file =
             File::create(args.config_path.clone()).expect("Couldn't create a config file");
         let config_str = toml::to_string_pretty(&args).expect("Couldn't serialize struct");
-        file.write(config_str.as_bytes())
+        file.write_all(config_str.as_bytes())
             .expect("Failed to write a config file");
         println!("Config successfully created in {}", args.config_path);
         return;
@@ -45,7 +44,7 @@ fn main() {
         }
     } else {
         println!("No configuration file found");
-        Config::from(args)
+        args
     };
     let mut handles: Vec<JoinHandle<io::Result<()>>> = Vec::new();
     Logger::try_with_str(&config.log_level)
@@ -55,12 +54,11 @@ fn main() {
         .unwrap();
 
     let running = Arc::new(AtomicBool::new(true));
-    let r = running.clone();
     if !config.settings.disable_touch {
-        match touch::spawn_thread(&config.settings, running.clone()) {
-            Ok((re2, alls)) => {
-                handles.push(re2);
-                handles.push(alls);
+        match touch::spawn_thread(&config.settings, &running) {
+            Ok((finale, deluxe)) => {
+                handles.push(finale);
+                handles.push(deluxe);
             }
             Err(err) => error!("Touchscreen initialization failed: {}", err),
         };
@@ -92,8 +90,7 @@ fn main() {
     })
     .unwrap();
 
-    for b in 0..dbg!(handles.len()) {
-
+    for _ in 0..handles.len() {
         if let Err(e) = handles.pop().unwrap().join() {
             error!("Thread panicked, {:?}", e);
         }

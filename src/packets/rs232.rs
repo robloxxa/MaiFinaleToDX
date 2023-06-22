@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use crate::helper_funcs::{ReadExt, WriteExt, SYNC};
 use std::io;
 
@@ -211,7 +213,7 @@ mod tests {
 
     #[test]
     pub fn req_packet_new() {
-        let data: &[u8] = &[01, 02];
+        let data: &[u8] = &[0x01, 0x02];
         let dest = 0xFF;
         let mut packet: RequestPacket = RequestPacket::new(dest, data);
         assert_eq!(packet.dest(), dest);

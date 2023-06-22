@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 
 use crate::helper_funcs::{ReadExt, WriteExt, SYNC};
 
@@ -75,7 +76,7 @@ pub trait Packet {
     }
 
     fn read(&mut self, reader: &mut dyn ReadExt) -> io::Result<&mut Self> {
-        read_packet(reader, &mut self.get_mut_buf())?;
+        read_packet(reader, self.get_mut_buf())?;
         Ok(self)
     }
 
@@ -231,12 +232,12 @@ pub fn write_packet(writer: &mut dyn WriteExt, data: &[u8]) -> io::Result<u8> {
 #[cfg(test)]
 mod tests {
     use crate::packets::rs232c::{Packet, RequestPacket, ResponsePacket};
-    use std::io::{BufReader};
+    use std::io::BufReader;
 
     #[test]
     pub fn req_packet_new() {
         let d: &[u8] = &[0xE0, 0x06, 0xFF, 0x00, 0x02, 0x01, 0x02];
-        let data: &[u8] = &[01, 02];
+        let data: &[u8] = &[0x01, 0x02];
         let dest = 0xFF;
         let cmd = 0x02;
         let mut packet: RequestPacket = RequestPacket::new(dest, cmd, data);

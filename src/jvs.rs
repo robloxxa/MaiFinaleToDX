@@ -1,12 +1,12 @@
+use std::io::BufWriter;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use std::{io, thread};
-use std::io::BufWriter;
 
 use std::thread::JoinHandle;
 
-use log::{debug, error, info};
+use log::{error, info};
 use serialport::SerialPort;
 use winapi::ctypes::c_int;
 
@@ -28,7 +28,7 @@ static CMD_COMMAND_REVISION: u8 = 0x11;
 static CMD_JVS_VERSION: u8 = 0x12;
 static CMD_COMMS_VERSION: u8 = 0x13;
 static CMD_CAPABILITIES: u8 = 0x14;
-static CMD_CONVEY_ID: u8 = 0x15;
+// static CMD_CONVEY_ID: u8 = 0x15;
 static CMD_READ_DIGITAL: u8 = 0x20;
 type InputMapping = [[Option<c_int>; 8]; 4];
 
@@ -92,10 +92,7 @@ impl RingEdge2 {
         thread::sleep(Duration::from_millis(500));
 
         self.cmd(BROADCAST, &[CMD_ASSIGN_ADDRESS, board])?;
-        info!(
-            "JVS: Assigned address {}",
-            board,
-        );
+        info!("JVS: Assigned address {}", board,);
 
         self.cmd(board, &[CMD_IDENTIFY])?;
         info!(
@@ -215,13 +212,17 @@ pub fn spawn_thread(
     let mut jvs = RingEdge2::new(args.settings.jvs_re2_com.clone(), args.input.clone())?;
     jvs.init(1)?;
 
-    Ok(thread::spawn(move || -> io::Result<()> {
-        while running.load(Ordering::Acquire) {
-            if let Err(err) = jvs.read_digital(1) {
-                error!("JVS: error: {}", err);
-            };
-        }
+    let jvs_handle = thread::Builder::new()
+        .name("Finale JVS Thread".to_string())
+        .spawn(move || -> io::Result<()> {
+            while running.load(Ordering::Acquire) {
+                if let Err(err) = jvs.read_digital(1) {
+                    error!("JVS: error: {}", err);
+                };
+            }
+            Ok(())
+        })
+        .unwrap();
 
-        Ok(())
-    }))
+    Ok(jvs_handle)
 }

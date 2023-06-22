@@ -1,26 +1,33 @@
-[settings]
-touch_disabled=false
-re2_touch_com="COM22"
-alls_p1_touch_com=""
-alls_p2_touch_com=""
+log_level = "info"
 
-jvs_disabled=false
-re2_jvs_com=""
+[settings]
+disable_touch = false
+disable_jvs = false
+disable_reader = false
+disable_spice_api = false
+touch_re2_com = "COM23"
+touch_alls_p1_com = "COM6"
+touch_alls_p2_com = "COM8"
+jvs_re2_com = "COM24"
+reader_re2_com = "COM22"
+spice_port = "1337"
 
 [input]
-service=0x00
-test=0x00
-
-# COIN=0x00
-
-# Player 1 default input, same as SEGATOOLS default keys
-p1_btn1=0x57 # W
-p1_btn2=0x45 # E
-p1_btn3=0x44 # D
-p1_btn4=0x43 # C
-p1_btn5=0x58 # X
-p1_btn6=0x5A # Z
-p1_btn7=0x41 # A
-p1_btn8=0x51 # Q
-
-# TODO: complete example config
+service = 51
+test = 84
+p1_btn1 = 87
+p1_btn2 = 69
+p1_btn3 = 68
+p1_btn4 = 67
+p1_btn5 = 88
+p1_btn6 = 90
+p1_btn7 = 65
+p1_btn8 = 81
+p2_btn1 = 104
+p2_btn2 = 105
+p2_btn3 = 102
+p2_btn4 = 99
+p2_btn5 = 98
+p2_btn6 = 97
+p2_btn7 = 100
+p2_btn8 = 103

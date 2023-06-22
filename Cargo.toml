@@ -1,13 +1,13 @@
 [package]
-name = "re2_to_alls_wrapper"
-version = "0.2.0"
+name = "mai_finale_to_deluxe"
+version = "1.0.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 serialport = "4.2.0"
-clap = { features = ["derive"] }
+clap = { version = "4.3.5", features = ["derive"] }
 crossbeam-channel = "0.5.7"
 toml = "0.7.3"
 winapi = { version = "0.3.9", features = ["winuser", "timeapi"] }
@@ -16,4 +16,3 @@ flexi_logger = "0.25.3"
 log = "0.4.17"
 clap-serde-derive = "0.2.0"
 ctrlc = { version = "3.2.5", features = ["termination"] }
-rocket = "0.4.11"

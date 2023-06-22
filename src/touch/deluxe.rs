@@ -1,10 +1,7 @@
-
 use std::io::Read;
 use std::time::Duration;
-use log::debug;
 
 use serialport::{ClearBuffer, SerialPort};
-
 
 pub struct MessageCmd {
     pub player_num: usize,
@@ -35,9 +32,7 @@ impl TouchMasterCommand {
             b'A' => TouchMasterCommand::Stat,
             b'k' => TouchMasterCommand::Sens(buf[1], buf[2], buf[4]),
             b'r' => TouchMasterCommand::Ratio(buf[1], buf[2], buf[4]),
-            _ => {
-                TouchMasterCommand::Unknown
-            },
+            _ => TouchMasterCommand::Unknown,
         }
     }
 }

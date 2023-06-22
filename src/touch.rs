@@ -20,10 +20,9 @@ use crate::touch::finale::*;
 mod deluxe;
 mod finale;
 
-pub const RSET: &[u8] = "{RSET}".as_bytes();
+// pub const RSET: &[u8] = "{RSET}".as_bytes();
 pub const HALT: &[u8] = "{HALT}".as_bytes();
 pub const STAT: &[u8] = "{STAT}".as_bytes();
-
 
 pub fn spawn_thread(
     args: &Settings,
@@ -38,40 +37,40 @@ pub fn spawn_thread(
     let dx_p2_port = dx_p2_touch.port.try_clone_native()?;
 
     let mut fe_touch = RingEdge2::new(args.touch_re2_com.clone(), dx_p1_port, dx_p2_port)?;
-    fe_touch.port.write(HALT)?;
-    fe_touch.port.write(STAT)?;
+    fe_touch.port.write_all(HALT)?;
+    fe_touch.port.write_all(STAT)?;
     let dx_sig = exit_sig.clone();
     let fe_sig = exit_sig.clone();
 
     let deluxe_handle = thread::Builder::new()
         .name("Deluxe Touch Thread".to_string())
         .spawn(move || -> io::Result<()> {
-        while dx_sig.load(Ordering::Acquire) {
-            dx_p1_touch.read();
-            dx_p2_touch.read();
-        }
-        Ok(())
-    });
+            while dx_sig.load(Ordering::Acquire) {
+                dx_p1_touch.read();
+                dx_p2_touch.read();
+            }
+            Ok(())
+        })
+        .unwrap();
     let finale_handle = thread::Builder::new()
         .name("Finale Touch Thread".to_string())
         .spawn(move || -> io::Result<()> {
-        let rcv = receiver.clone();
-        while fe_sig.load(Ordering::Acquire) {
-            for c in rcv.try_iter() {
-                fe_touch.parse_command_from_alls(c)?;
+            let rcv = receiver.clone();
+            while fe_sig.load(Ordering::Acquire) {
+                for c in rcv.try_iter() {
+                    fe_touch.parse_command_from_alls(c)?;
+                }
+                fe_touch.read();
             }
-            fe_touch.read();
-        }
 
-        fe_touch.port.write(HALT)?;
+            fe_touch.port.write_all(HALT)?;
 
-        Ok(())
-    });
+            Ok(())
+        })
+        .unwrap();
 
     info!("Touchscreen is ready, good luck touchin'!");
     info!("If touchscreen doesn't work, restart the application, go in test menu and exit it so checks run again");
 
     Ok((finale_handle, deluxe_handle))
 }
-
-pub fn init()
