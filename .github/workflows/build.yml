@@ -38,4 +38,5 @@ jobs:
       with:
         files: |
           target/release/mai_finale_to_deluxe.exe
-
+        permissions:
+          contents: write
