@@ -1,4 +1,4 @@
-name: Build app
+name: Build
 
 on:
   push:
@@ -28,3 +28,8 @@ jobs:
       run: cargo build --release --verbose
     - name: Run tests
       run: cargo test --verbose
+    - name: Publish
+      uses: softprops/action-gh-release@v1
+      if: startsWith(github.ref, 'refs/tags/v')
+      files: target/release/mai_finale_to_deluxe.exe
+
