@@ -9,7 +9,7 @@ TBD
 # About
 
 ## How does it work?
-It takes inputs from Cabinet Touchscreen/JVS/NFC reader COM Ports, modifies it in the way that Deluxe can understand
+It takes inputs from Cabinet Touchscreen ~~/JVS/NFC reader~~ COM Ports, modifies it in the way that Deluxe can understand
 and sends it to other virtual COM ports (via [com0com]() or other programs) that game will read.
 ## Touchscreen difference
 If you played both Finale and Deluxe version, you know that Deluxe have new additional touch zones as well as a new game mechanic - touch notes.
