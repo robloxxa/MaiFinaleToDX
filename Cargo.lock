@@ -91,6 +91,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "anyhow"
+version = "1.0.79"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "080e9890a082662b09c1ad45f567faeeb47f22b5fb23895fbe1e651e718e25ca"
+
+[[package]]
 name = "autocfg"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -496,6 +502,7 @@ dependencies = [
 name = "mai_finale_to_deluxe"
 version = "1.0.0"
 dependencies = [
+ "anyhow",
  "clap",
  "clap-serde-derive",
  "crossbeam-channel",

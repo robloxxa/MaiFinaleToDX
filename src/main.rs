@@ -1,6 +1,8 @@
 use crate::config::Config;
+use anyhow::{Error, Result};
 use clap::Parser;
 use clap_serde_derive::ClapSerde;
+use config::Settings;
 use flexi_logger::{colored_opt_format, Logger};
 use log::{error, info, warn};
 
@@ -21,41 +23,11 @@ mod packets;
 mod touch;
 
 fn main() {
-    unsafe {
-        timeapi::timeBeginPeriod(1);
-    }
-
-    let args = Config::parse();
-    if args.create_config {
-        let mut file =
-            File::create(args.config_path.clone()).expect("Couldn't create a config file");
-        let config_str = toml::to_string_pretty(&args).expect("Couldn't serialize struct");
-        file.write_all(config_str.as_bytes())
-            .expect("Failed to write a config file");
-        println!("Config successfully created in {}", args.config_path);
-        return;
-    }
-    let config = if let Ok(mut f) = File::open(&args.config_path) {
-        let mut data = String::new();
-        f.read_to_string(&mut data).expect("Unable to parse a file");
-        match toml::from_str::<<Config as ClapSerde>::Opt>(data.as_str()) {
-            Ok(config) => Config::from(config).merge_clap(),
-            Err(err) => panic!("Error in configuration file:\n{}", err),
-        }
-    } else {
-        println!("No configuration file found");
-        args
-    };
     let mut handles: Vec<JoinHandle<io::Result<()>>> = Vec::new();
-    Logger::try_with_str(&config.log_level)
-        .unwrap()
-        .format(colored_opt_format)
-        .start()
-        .unwrap();
 
     let running = Arc::new(AtomicBool::new(true));
-    if !config.settings.disable_touch {
-        match touch::spawn_thread(&config.settings, &running) {
+    if !args.settings.disable_touch {
+        match touch::spawn_thread(&args.settings, &running) {
             Ok((finale, deluxe)) => {
                 handles.push(finale);
                 handles.push(deluxe);
@@ -66,8 +38,8 @@ fn main() {
         warn!("\"disable_touch\" was set to True. Touch features disabled")
     }
 
-    if !config.settings.disable_jvs {
-        match jvs::spawn_thread(&config, running.clone()) {
+    if !args.settings.disable_jvs {
+        match jvs::spawn_thread(&args, running.clone()) {
             Ok(jvs) => handles.push(jvs),
             Err(err) => error!("JVS initialization failed: {}", err),
         }
@@ -75,8 +47,8 @@ fn main() {
         warn!("\"disable_jvs\" was set to True. JVS features disabled")
     }
 
-    if !config.settings.disable_reader {
-        match card_reader::spawn_thread(&config, running.clone()) {
+    if !args.settings.disable_reader {
+        match card_reader::spawn_thread(&args, running.clone()) {
             Ok(reader) => handles.push(reader),
             Err(err) => error!("Card reader initialization failed: {}", err),
         }
@@ -95,4 +67,57 @@ fn main() {
             error!("Thread panicked, {:?}", e);
         }
     }
+}
+
+fn setup() -> Result<()> {
+    unsafe {
+        timeapi::timeBeginPeriod(1);
+    }
+
+
+    let logger = Logger::try_with_str("info")?
+        .format(colored_opt_format)
+        .start()?;
+
+    let config = setup_config()?;
+
+    if config.log_level != "info" {
+        logger.parse_new_spec(&config.log_level)?;
+    }
+
+    Ok(())
+}
+
+
+fn setup_config() -> Result<Config> {
+    let mut config = Config::parse();
+
+    if config.create_config {
+        let config_str = toml::to_string_pretty(&config)?;
+        File::create(&config.config_path).and_then(|mut f| f.write_all(config_str.as_bytes()))?;
+        info!("Config successfully created in {}", config.config_path);
+    };
+
+    match File::open(&config.config_path) {
+        Ok(mut f) => {
+            let mut data = String::new();
+            f.read_to_string(&mut data)?;
+            match toml::from_str::<<Config as ClapSerde>::Opt>(data.as_str()) {
+                Ok(config) => Ok(Config::from(config).merge_clap()),
+                Err(err) => Err(err.into()),
+            }
+        }
+        Err(_) => {
+            info!("No configuration file found");
+            Ok(config)
+        }
+    }
+}
+
+fn setup_handlers(cfg: &Config) -> Result<()> {
+    let (send, recv) = crossbeam_channel::bounded::<Error>(1);
+
+
+
+    Ok(())
 }

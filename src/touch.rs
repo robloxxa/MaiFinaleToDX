@@ -5,7 +5,9 @@
 // existing ones (see touch::deluxe::)
 // So if you press, for example, B1 area in Maimai DX, it will also press E1 and E2 (which is is close to B1)
 
-use crate::config::Settings;
+use crate::config::{Config, Settings};
+use anyhow::{Result, Error};
+use crossbeam_channel::Sender;
 use log::info;
 
 use std::io::Write;
@@ -27,7 +29,7 @@ pub const STAT: &[u8] = "{STAT}".as_bytes();
 pub fn spawn_thread(
     args: &Settings,
     exit_sig: &Arc<AtomicBool>,
-) -> io::Result<(JoinHandle<io::Result<()>>, JoinHandle<io::Result<()>>)> {
+) -> Result<[JoinHandle<Result<()>>; 3]> {
     let (sender, receiver) = crossbeam_channel::bounded::<MessageCmd>(10);
 
     let mut dx_p1_touch = Deluxe::new(args.touch_alls_p1_com.clone(), 0, sender.clone())?;
@@ -73,4 +75,11 @@ pub fn spawn_thread(
     info!("If touchscreen doesn't work, restart the application, go in test menu and exit it so checks run again");
 
     Ok((finale_handle, deluxe_handle))
+}
+
+pub fn setup(exit_sig: Sender<Error>, config: &Config) -> Result<Vec<JoinHandle<Result<()>>>> {
+    let mut handles = vec![];
+
+    
+    Ok()
 }

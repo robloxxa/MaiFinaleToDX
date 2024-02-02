@@ -19,8 +19,9 @@ pub struct Config {
     #[arg(long, default_value = "false", action=ArgAction::SetTrue)]
     /// Creates a new config with default values
     pub create_config: bool,
-    /// Log level, options: INFO, WARN,
-    #[serde(default)]
+
+    /// Log level, options: INFO, WARN, DEBUG, TRACE
+    #[serde(skip)]
     #[arg(long, default_value = "info")]
     pub log_level: String,
 
@@ -35,43 +36,53 @@ pub struct Config {
 
 #[derive(Parser, ClapSerde, Deserialize, Serialize, Debug, Clone)]
 pub struct Settings {
-    /// When set to True (or presented) will disable touch features
+    /// Enable TouchScreen feature
     #[arg(long, default_value = "false", action=ArgAction::SetTrue)]
-    pub disable_touch: bool,
+    pub touch: bool,
 
-    /// When set to True (or presented) will disable JVS features
+    /// Enable JVS feature
+    /// 
+    /// This will try to read from JVS com port (specified by `jvs_port`) and use it as a keyboard.
+    /// See [`Input`] to see what keys are emulated.
     #[arg(long, default_value = "false", action=ArgAction::SetTrue)]
-    pub disable_jvs: bool,
+    pub jvs: bool,
 
     /// Disable NFC reader feature
     #[arg(long, default_value = "false", action=ArgAction::SetTrue)]
-    pub disable_reader: bool,
+    pub reader: bool,
 
+    /// Enable Spice API feature
+    /// 
+    /// WARNING: NOT IMPLEMENTED YET
     #[arg(long, default_value = "false", action=ArgAction::SetTrue)]
-    pub disable_spice_api: bool,
+    pub spice_api: bool,
 
     /// COM Port for Finale touch
     #[arg(long, default_value = "COM23")]
-    pub touch_re2_com: String,
+    pub touch_finale_port: String,
 
     /// COM Port for Deluxe Player 1 touch
-    #[arg(long, default_value = "COM6")]
-    pub touch_alls_p1_com: String,
+    #[arg(long, default_value = "DX_TOUCH_1")]
+    pub touch_dx_p1_port: String,
 
     /// COM Port for Deluxe Player 2 touch
     #[arg(long, default_value = "COM8")]
-    pub touch_alls_p2_com: String,
+    pub touch_dx_p2_port: String,
 
     /// COM Port for Finale's JVS
     #[arg(long, default_value = "COM24")]
-    pub jvs_re2_com: String,
+    pub jvs_port: String,
 
+    /// COM Port for card reader
     #[arg(long, default_value = "COM22")]
-    pub reader_re2_com: String,
+    pub reader_port: String,
 
     #[arg(long)]
     pub reader_device_file: Option<String>,
 
+    /// Spice port for Spice API
+    /// 
+    /// WARNING: NOT IMPLEMENTED YET
     #[arg(long, default_value = "1337")]
     pub spice_port: String,
 }
@@ -118,33 +129,34 @@ pub struct Input {
 	pub p2_btn8: c_int,
 }
 
-static TEST_DEFAULT: c_int = 0x54;
-static SERVICE_DEFAULT: c_int = 0x33;
+const TEST_DEFAULT: c_int = 0x54;
+const SERVICE_DEFAULT: c_int = 0x33;
 
-static P1_BTN1_DEFAULT: c_int = 0x57;
 // W
-static P1_BTN2_DEFAULT: c_int = 0x45;
+const P1_BTN1_DEFAULT: c_int = 0x57;
 // E
-static P1_BTN3_DEFAULT: c_int = 0x44;
+const P1_BTN2_DEFAULT: c_int = 0x45;
 // D
-static P1_BTN4_DEFAULT: c_int = 0x43;
+const P1_BTN3_DEFAULT: c_int = 0x44;
 // C
-static P1_BTN5_DEFAULT: c_int = 0x58;
+const P1_BTN4_DEFAULT: c_int = 0x43;
 // X
-static P1_BTN6_DEFAULT: c_int = 0x5A;
+const P1_BTN5_DEFAULT: c_int = 0x58;
 // Z
-static P1_BTN7_DEFAULT: c_int = 0x41;
+const P1_BTN6_DEFAULT: c_int = 0x5A;
 // A
-static P1_BTN8_DEFAULT: c_int = 0x51; // Q
+const P1_BTN7_DEFAULT: c_int = 0x41;
+// Q
+const P1_BTN8_DEFAULT: c_int = 0x51; 
 
-static P2_BTN1_DEFAULT: c_int = VK_NUMPAD8;
-static P2_BTN2_DEFAULT: c_int = VK_NUMPAD9;
-static P2_BTN3_DEFAULT: c_int = VK_NUMPAD6;
-static P2_BTN4_DEFAULT: c_int = VK_NUMPAD3;
-static P2_BTN5_DEFAULT: c_int = VK_NUMPAD2;
-static P2_BTN6_DEFAULT: c_int = VK_NUMPAD1;
-static P2_BTN7_DEFAULT: c_int = VK_NUMPAD4;
-static P2_BTN8_DEFAULT: c_int = VK_NUMPAD7;
+const P2_BTN1_DEFAULT: c_int = VK_NUMPAD8;
+const P2_BTN2_DEFAULT: c_int = VK_NUMPAD9;
+const P2_BTN3_DEFAULT: c_int = VK_NUMPAD6;
+const P2_BTN4_DEFAULT: c_int = VK_NUMPAD3;
+const P2_BTN5_DEFAULT: c_int = VK_NUMPAD2;
+const P2_BTN6_DEFAULT: c_int = VK_NUMPAD1;
+const P2_BTN7_DEFAULT: c_int = VK_NUMPAD4;
+const P2_BTN8_DEFAULT: c_int = VK_NUMPAD7;
 
 // impl Default for Input {
 //     fn default() -> Self {

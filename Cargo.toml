@@ -16,3 +16,4 @@ flexi_logger = "0.25.3"
 log = "0.4.17"
 clap-serde-derive = "0.2.0"
 ctrlc = { version = "3.2.5", features = ["termination"] }
+anyhow = "1.0.79"
