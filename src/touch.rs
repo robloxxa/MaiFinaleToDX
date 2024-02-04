@@ -7,7 +7,6 @@
 
 use crate::config::{Config, Settings};
 use anyhow::{Error, Result};
-use crossbeam_channel::Sender;
 use log::info;
 
 use std::io::Write;
