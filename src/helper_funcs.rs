@@ -6,8 +6,8 @@ pub static MARK: u8 = 0xD0;
 
 pub trait ReadExt: Read {
     fn read_u8(&mut self) -> io::Result<u8> {
-        let buf = &mut [0u8; 1];
-        self.read(buf)?;
+        let mut buf = [0u8; 1];
+        self.read_exact(&mut buf)?;
         Ok(buf[0])
     }
 
