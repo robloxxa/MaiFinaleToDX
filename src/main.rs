@@ -17,9 +17,9 @@ use winapi::um::timeapi;
 // mod card_reader;
 mod config;
 mod helper_funcs;
-// mod jvs;
-// mod keyboard;
-// mod packets;
+mod jvs;
+mod keyboard;
+mod packets;
 mod touch;
 
 fn main() {
@@ -133,14 +133,15 @@ fn setup_handlers(
     cfg: &Settings,
     exit_sig: &Arc<AtomicBool>,
 ) -> Result<Vec<JoinHandle<Result<()>>>> {
-    let mut handlers = vec![];
+    let mut handlers = Vec::with_capacity(4);
 
     if cfg.touch {
-        match touch::setup(cfg, &exit_sig) {
-            Ok(v) => handlers.extend(v),
-            Err(e) => return Err(e.into()),
-        };
+        handlers.extend(touch::setup(cfg, &exit_sig)?) 
     };
+
+    if cfg.jvs {
+        handlers.push(jvs::setup(cfg, &exit_sig)?)
+    }
 
     Ok(handlers)
 }
