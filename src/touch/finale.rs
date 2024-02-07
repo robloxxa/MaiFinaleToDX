@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use serial2::SerialPort;
 
-use crate::helper_funcs::{bit_read, WriteExt};
+use crate::helper_funcs::{bit_read};
 use crate::touch::HALT;
 
 pub struct Finale {
@@ -44,12 +44,14 @@ impl Finale {
     pub fn process(&mut self) -> Result<()> {
         match self.port.read_exact(&mut self.read_buffer) {
             Ok(_) => {
+                // TODO: Check how well behave relaxed ordering
+                // Also maybe with serial2 we can read it without any delay? Since it uses different timeout settings.
                 if self.deluxe_active[0].load(Ordering::Relaxed) {
-                    Self::write_to_deluxe(&mut self.read_buffer[1..5], &mut self.deluxe_ports[0]);
+                    Self::write_to_deluxe(&mut self.read_buffer[1..5], &mut self.deluxe_ports[0])?;
                 }
 
                 if self.deluxe_active[1].load(Ordering::Relaxed) {
-                    Self::write_to_deluxe(&mut self.read_buffer[7..11], &mut self.deluxe_ports[1]);
+                    Self::write_to_deluxe(&mut self.read_buffer[7..11], &mut self.deluxe_ports[1])?;
                 }
 
                 Ok(())

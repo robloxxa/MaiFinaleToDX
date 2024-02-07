@@ -1,12 +1,12 @@
-// This crate is responsible for getting data from the actual RingEdge 2 Maimai Touchscreen COM and
-// wrapping it in the way that Maimai DX (based on ALLs system) can read it.
-//
-// Since Finale cabinet touch lacks some Touch areas that Deluxe touch has, we basically map them to
-// existing ones (see touch::deluxe::)
-// So if you press, for example, B1 area in Maimai DX, it will also press E1 and E2 (which is is close to B1)
+//! This crate is responsible for getting data from the actual RingEdge 2 Maimai Touchscreen COM and
+//! wrapping it in the way that Maimai DX (based on ALLs system) can read it.
+//!
+//! Since PreDX cabinet touch lacks some Touch areas that Deluxe touch has, we basically map them to
+//! existing ones in [`finale`] module
+//! So if you press, for example, B1 area in Maimai DX, it will also press E1 and E2 (which is is close to B1)
 
 use crate::config::{Config, Settings};
-use anyhow::{Error, Result};
+use anyhow::{Context, Error, Result};
 use log::info;
 
 use std::io::Write;
@@ -110,7 +110,7 @@ pub fn setup(config: &Settings, exit_sig: &Arc<AtomicBool>) -> Result<Vec<JoinHa
             }
 
             Ok(())
-        })?
+        }).with_context(|| "Failed to spawn Deluxe touch thread")?
     );
 
     handles.push(
@@ -122,7 +122,7 @@ pub fn setup(config: &Settings, exit_sig: &Arc<AtomicBool>) -> Result<Vec<JoinHa
             }
             
             Ok(())
-        })?
+        }).with_context(|| "Failed to spawn Finale touch thread")?
     );
 
     Ok(handles)

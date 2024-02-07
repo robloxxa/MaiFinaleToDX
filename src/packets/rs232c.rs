@@ -4,6 +4,8 @@ use crate::helper_funcs::{ReadExt, WriteExt, SYNC};
 
 use std::io;
 
+use super::Packet;
+
 const SYNC_INDEX: usize = 0;
 const SIZE_INDEX: usize = 1;
 const DESTINATION_INDEX: usize = 2;
@@ -13,35 +15,16 @@ const REPORT_INDEX: usize = 5;
 
 const LEN_OF_HEADER: usize = 2;
 
-pub trait Packet {
-    const DATA_BEGIN_INDEX: usize;
+pub trait ReaderPacket: Packet {
+    const SEQUENCE_INDEX: usize;
+    const COMMAND_INDEX: usize;
 
-    fn get_buf(&self) -> &[u8];
-    fn get_mut_buf(&mut self) -> &mut [u8];
-
-    fn get_slice(&self) -> &[u8] {
-        &self.get_buf()[..self.len()]
+    fn get_seq_num(&self) -> u8 {
+        self.inner()[SEQUENCE_INDEX]
     }
 
-    fn len(&self) -> usize {
-        self.get_buf()[SIZE_INDEX] as usize + 2
-    }
-
-    fn dest(&self) -> u8 {
-        self.get_buf()[DESTINATION_INDEX]
-    }
-
-    fn set_dest(&mut self, dest: u8) -> &mut Self {
-        self.get_mut_buf()[DESTINATION_INDEX] = dest;
-        self
-    }
-
-    fn seq_num(&self) -> u8 {
-        self.get_buf()[SEQUENCE_INDEX]
-    }
-
-    fn set_seq_num(&mut self, seq_num: u8) -> &mut Self {
-        self.get_mut_buf()[SEQUENCE_INDEX] = seq_num;
+    fn seq_num(&mut self, seq_num: u8) -> &mut Self {
+        self.inner_mut()[SEQUENCE_INDEX] = seq_num;
         self
     }
 
@@ -54,37 +37,18 @@ pub trait Packet {
         self
     }
 
-    fn data(&mut self) -> &[u8] {
-        let len = self.len();
-        &self.get_mut_buf()[Self::DATA_BEGIN_INDEX..len - 1]
-    }
 
-    fn mut_data(&mut self) -> &mut [u8] {
-        let len = self.len();
-        &mut self.get_mut_buf()[Self::DATA_BEGIN_INDEX..len - 1]
-    }
 
-    fn set_data(&mut self, data: &[u8]) -> &mut Self {
-        self.get_mut_buf()[Self::DATA_BEGIN_INDEX..data.len() + Self::DATA_BEGIN_INDEX]
-            .copy_from_slice(data);
-        self.get_mut_buf()[SIZE_INDEX] = (data.len() + Self::DATA_BEGIN_INDEX - 1) as u8;
-        self
-    }
+    // fn read(&mut self, reader: &mut dyn ReadExt) -> io::Result<&mut Self> {
+    //     read_packet(reader, self.get_mut_buf())?;
+    //     Ok(self)
+    // }
 
-    fn checksum(&self) -> u8 {
-        self.get_buf()[self.len()]
-    }
-
-    fn read(&mut self, reader: &mut dyn ReadExt) -> io::Result<&mut Self> {
-        read_packet(reader, self.get_mut_buf())?;
-        Ok(self)
-    }
-
-    fn write(&mut self, writer: &mut dyn WriteExt) -> io::Result<()> {
-        let len = self.len();
-        self.get_mut_buf()[len - 1] = write_packet(writer, &self.get_mut_buf()[..len])?;
-        Ok(())
-    }
+    // fn write(&mut self, writer: &mut dyn WriteExt) -> io::Result<()> {
+    //     let len = self.len();
+    //     self.get_mut_buf()[len - 1] = write_packet(writer, &self.get_mut_buf()[..len])?;
+    //     Ok(())
+    // }
 }
 
 #[derive(Debug)]
@@ -93,13 +57,15 @@ pub struct RequestPacket<const N: usize = 256> {
 }
 
 impl<const N: usize> Packet for RequestPacket<N> {
+    const SIZE_INDEX: usize = 1;
+    const DESTINATION_INDEX: usize = 2;
     const DATA_BEGIN_INDEX: usize = 5;
 
-    fn get_buf(&self) -> &[u8] {
+    fn inner(&self) -> &[u8] {
         &self.buffer
     }
 
-    fn get_mut_buf(&mut self) -> &mut [u8] {
+    fn inner_mut(&mut self) -> &mut [u8] {
         &mut self.buffer
     }
 }

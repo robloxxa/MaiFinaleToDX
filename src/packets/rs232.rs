@@ -1,3 +1,8 @@
+//! A Packet structure used for JVS.
+//! 
+//! Resuest Packet:
+//! `SYNC` `DESTINATION` `SIZE_OF_DATA` `..DATA` `CHECKSUM`
+
 #![allow(dead_code)]
 
 use crate::helper_funcs::{ReadExt, WriteExt, SYNC};
