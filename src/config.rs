@@ -29,9 +29,18 @@ pub struct Config {
     #[command(flatten)]
     pub settings: Settings,
 
-    #[clap_serde]
-    #[arg(skip)]
-    pub input: Input,
+}
+
+impl AsRef<Settings> for Config {
+    fn as_ref(&self) -> &Settings {
+        &self.settings
+    }
+}
+
+impl AsRef<Input> for Config {
+    fn as_ref(&self) -> &Input {
+        &self.settings.input
+    }
 }
 
 #[derive(Parser, ClapSerde, Deserialize, Serialize, Debug, Clone)]
@@ -85,6 +94,16 @@ pub struct Settings {
     /// WARNING: NOT IMPLEMENTED YET
     #[arg(long, default_value = "1337")]
     pub spice_port: String,
+
+    #[clap_serde]
+    #[arg(skip)]
+    pub input: Input,
+}
+
+impl AsRef<Input> for Settings {
+    fn as_ref(&self) -> &Input {
+        &self.input
+    }
 }
 
 #[derive(ClapSerde, Deserialize, Serialize, Debug, Clone)]
