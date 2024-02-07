@@ -1,3 +1,4 @@
+use std::borrow::Borrow;
 use std::io::BufWriter;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -6,12 +7,13 @@ use std::{io, thread};
 
 use std::thread::JoinHandle;
 
+use anyhow::{Context, Error, Result};
 use log::{error, info};
-use serialport::SerialPort;
+use serial2::SerialPort;
 use winapi::ctypes::c_int;
 
-use crate::config;
 use crate::config::Config;
+use crate::config::{self, Input, Settings};
 use crate::helper_funcs::bit_read;
 use crate::keyboard::Keyboard;
 use crate::packets::rs232;
@@ -33,7 +35,7 @@ static CMD_READ_DIGITAL: u8 = 0x20;
 type InputMapping = [[Option<c_int>; 8]; 4];
 
 pub struct RingEdge2 {
-    pub buf_writer: BufWriter<serialport::COMPort>,
+    pub buf_writer: BufWriter<SerialPort>,
     keyboard: Keyboard,
 
     service_key: c_int,
@@ -45,12 +47,10 @@ pub struct RingEdge2 {
 }
 
 impl RingEdge2 {
-    pub fn new(
-        port_name: String,
-        input_settings: config::Input,
-    ) -> Result<Self, serialport::Error> {
-        let mut port = serialport::new(port_name, 115_200).open_native()?;
-        port.set_timeout(Duration::from_millis(500))?;
+    pub fn new(port_name: impl AsRef<str>, input: impl Borrow<Input>) -> Result<Self, Error> {
+        let mut port = SerialPort::open(port_name.as_ref(), 115_200)?;
+        port.set_read_timeout(Duration::from_millis(500))?;
+        let input_settings = input.borrow();
         let input_map = map_input_settings(&input_settings);
         Ok(Self {
             buf_writer: BufWriter::new(port),
@@ -64,7 +64,7 @@ impl RingEdge2 {
     }
 
     /// Writes a request packet to JVS Com port and immediately wait for a response, muting self.res_packet
-    fn cmd(&mut self, dest: u8, data: &[u8]) -> io::Result<()> {
+    fn cmd(&mut self, dest: u8, data: &[u8]) -> Result<()> {
         self.req_packet
             .set_dest(dest)
             .set_data(data)
@@ -73,7 +73,7 @@ impl RingEdge2 {
         Ok(())
     }
 
-    fn reset(&mut self) -> io::Result<()> {
+    fn reset(&mut self) -> Result<()> {
         self.req_packet
             .set_dest(0xFF)
             .set_data(&[CMD_RESET, CMD_RESET_ARGUMENT]);
@@ -84,7 +84,7 @@ impl RingEdge2 {
         Ok(())
     }
 
-    pub fn init(&mut self, board: u8) -> io::Result<()> {
+    pub fn init(&mut self, board: u8) -> Result<()> {
         info!("JVS: Initializing");
 
         self.reset()?;
@@ -97,7 +97,7 @@ impl RingEdge2 {
         self.cmd(board, &[CMD_IDENTIFY])?;
         info!(
             "JVS: Board Info: {}",
-            std::str::from_utf8(self.res_packet.data()).unwrap()
+            std::str::from_utf8(self.res_packet.data())?
         );
 
         self.cmd(board, &[CMD_COMMAND_REVISION])?;
@@ -127,7 +127,7 @@ impl RingEdge2 {
         Ok(())
     }
 
-    fn read_digital(&mut self, board: u8) -> io::Result<()> {
+    fn read_digital(&mut self, board: u8) -> Result<()> {
         self.cmd(board, &[CMD_READ_DIGITAL, 0x02, 0x02])?;
 
         // debug!("{:02X?}", self.res_packet.get_slice());
@@ -205,24 +205,23 @@ fn map_input_settings(settings: &config::Input) -> InputMapping {
     ]
 }
 
-pub fn spawn_thread(
-    args: &Config,
-    running: Arc<AtomicBool>,
-) -> io::Result<JoinHandle<io::Result<()>>> {
-    let mut jvs = RingEdge2::new(args.settings.jvs_re2_com.clone(), args.input.clone())?;
+pub fn setup(
+    settings: &Settings,
+    running: &Arc<AtomicBool>,
+) -> Result<JoinHandle<Result<()>>> {
+    let mut jvs = RingEdge2::new(&settings.jvs_port, &settings.input)?;
+    let exit_sig = running.clone();
     jvs.init(1)?;
 
-    let jvs_handle = thread::Builder::new()
+    thread::Builder::new()
         .name("Finale JVS Thread".to_string())
-        .spawn(move || -> io::Result<()> {
-            while running.load(Ordering::Acquire) {
+        .spawn(move || -> Result<()> {
+            while exit_sig.load(Ordering::Acquire) {
                 if let Err(err) = jvs.read_digital(1) {
                     error!("JVS: error: {}", err);
                 };
             }
             Ok(())
         })
-        .unwrap();
-
-    Ok(jvs_handle)
+        .with_context(|| "couldn't spawn JVS thread")
 }
