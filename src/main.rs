@@ -1,25 +1,27 @@
 use crate::config::Config;
-use anyhow::{Context, Error, Result};
+use crate::error::Result;
 use clap::Parser;
 use clap_serde_derive::ClapSerde;
 use config::Settings;
 use flexi_logger::{colored_opt_format, Logger};
-use log::{error, info, warn};
+use log::{debug, error, info, warn};
 
+use anyhow::Context;
+use anyhow::__private::kind::TraitKind;
 use std::fs::File;
+use std::io;
 use std::io::{Read, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread::JoinHandle;
-
 use winapi::um::timeapi;
 
 // mod card_reader;
 mod config;
+mod error;
 mod helper_funcs;
 mod jvs;
 mod keyboard;
-mod packets;
 mod touch;
 
 fn main() {
@@ -72,10 +74,11 @@ fn main() {
     }
 
     use std::process::Command;
-	let _ = Command::new("cmd.exe").arg("/c").arg("pause").status();
+    let _ = Command::new("cmd.exe").arg("/c").arg("pause").status();
 }
 
 fn setup() -> Result<()> {
+    // Set timer resolution to lower value possible. This is done for increasing reading speed of COM ports.
     unsafe {
         timeapi::timeBeginPeriod(1);
     }
@@ -85,22 +88,25 @@ fn setup() -> Result<()> {
         .start()?;
 
     let config = setup_config()?;
+
     if config.log_level != "info" {
         logger.parse_new_spec(&config.log_level)?;
     }
 
     let exit_sig = Arc::new(AtomicBool::new(false));
 
-    let handlers = setup_handlers(&config.settings, &exit_sig)?;
+    let handles = setup_handles(&config.settings, &exit_sig)?;
 
     ctrlc::set_handler(move || {
         info!("Got CTRL+C, exiting...");
         exit_sig.store(true, Ordering::Relaxed);
-    })?;
+    })
+        .context("Failed to setup CTRL+C handler")?;
 
-    for handler in handlers.into_iter() {
-        handler.join().unwrap().unwrap();
+    for handle in handles.into_iter() {
+        handle.join().unwrap()?;
     }
+
     Ok(())
 }
 
@@ -108,7 +114,7 @@ fn setup_config() -> Result<Config> {
     let config = Config::parse();
 
     if config.create_config {
-        let config_str = toml::to_string_pretty(&config)?;
+        let config_str = toml::to_string_pretty(&config).context("Failed to read config")?;
         File::create(&config.config_path).and_then(|mut f| f.write_all(config_str.as_bytes()))?;
         info!("Config successfully created in {}", config.config_path);
     };
@@ -119,7 +125,7 @@ fn setup_config() -> Result<Config> {
             f.read_to_string(&mut data)?;
             match toml::from_str::<<Config as ClapSerde>::Opt>(data.as_str()) {
                 Ok(config) => Ok(Config::from(config).merge_clap()),
-                Err(err) => Err(err.into()),
+                Err(err) => Err(anyhow::Error::from(err).into()),
             }
         }
         Err(_) => {
@@ -129,19 +135,21 @@ fn setup_config() -> Result<Config> {
     }
 }
 
-fn setup_handlers(
+fn setup_handles(
     cfg: &Settings,
     exit_sig: &Arc<AtomicBool>,
-) -> Result<Vec<JoinHandle<Result<()>>>> {
-    let mut handlers = Vec::with_capacity(4);
+) -> Result<Vec<JoinHandle<io::Result<()>>>> {
+    let mut handles = Vec::with_capacity(4);
 
     if cfg.touch {
-        handlers.extend(touch::setup(cfg, &exit_sig)?) 
+        touch::setup(cfg, &mut handles, exit_sig.clone())?;
     };
 
     if cfg.jvs {
-        handlers.push(jvs::setup(cfg, &exit_sig)?)
+        jvs::setup(cfg, &mut handles, exit_sig.clone())?;
     }
 
-    Ok(handlers)
+    if cfg.reader {}
+
+    Ok(handles)
 }

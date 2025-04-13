@@ -1,12 +1,14 @@
-use anyhow::{Context, Error, Result};
+use anyhow::{Context, Error};
 use serial2::SerialPort;
 
+use log::{debug, error, info};
 use std::io::Read;
-use std::path::Path;
+use std::io::Result;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::thread;
+use std::thread::JoinHandle;
 use std::time::Duration;
-
 // pub struct MessageCmd {
 //     pub player_num: usize,
 //     pub cmd: MasterCommand,
@@ -42,38 +44,50 @@ use std::time::Duration;
 // }
 
 pub struct Deluxe {
+    num: u8,
     pub port: SerialPort,
-    read_buffer: [u8; 6],
-    active: Arc<AtomicBool>,
+    pub active: Arc<AtomicBool>,
 }
 
 impl Deluxe {
-    pub fn new(port_name: impl Into<String>, active: &Arc<AtomicBool>) -> Result<Self> {
+    pub fn new(port_name: impl Into<String>, num: u8) -> Result<Self> {
         let port_name = port_name.into();
-        let mut port = SerialPort::open(&port_name, 115_200)
-            .with_context(|| format!("Failed to open port {}", port_name))?;
-        port.set_read_timeout(Duration::from_millis(1000))?;
+        let mut port = SerialPort::open(&port_name, 115_200).map_err(|e| {
+            error!(
+                "Cannot open serial port for Deluxe P{} Touchscreen: {}",
+                num, e
+            );
+            e
+        })?;
+        port.set_read_timeout(Duration::from_millis(0))?;
         Ok(Self {
+            num,
             port,
-            read_buffer: [0; 6],
-            active: active.clone(),
+            active: Arc::new(AtomicBool::new(false)),
         })
     }
 
     pub fn process(&mut self) -> Result<()> {
-        match self.port.read_exact(&mut self.read_buffer) {
+        let mut read_buffer: [u8; 6] = [0; 6];
+        match self.port.read_exact(&mut read_buffer) {
             Ok(_) => {
-                match self.read_buffer[3] {
+                match read_buffer[3] {
                     b'E' => self.active.store(false, Ordering::Relaxed),
-                    b'L' => self.active.store(false, Ordering::Relaxed),
-                    b'A' => self.active.store(true, Ordering::Relaxed),
+                    b'L' => {
+                        self.active.store(false, Ordering::Relaxed);
+                        self.port.set_read_timeout(Duration::from_millis(0))?;
+                    }
+                    b'A' => {
+                        self.active.store(true, Ordering::Relaxed);
+                        self.port.set_read_timeout(Duration::from_millis(1000))?;
+                    }
                     b'k' | b'r' => {
-                        self.read_buffer[0] = b'(';
-                        self.read_buffer[5] = b')';
-                        self.port.write_all(&self.read_buffer)?;
+                        read_buffer[0] = b'(';
+                        read_buffer[5] = b')';
+                        self.send(&mut read_buffer)?;
                     }
                     _ => {
-                        panic!("Unknown command: {:?}", &self.read_buffer);
+                        panic!("Unknown command: {:?}", &read_buffer);
                     }
                 }
                 Ok(())
@@ -81,5 +95,32 @@ impl Deluxe {
             Err(ref err) if err.kind() == std::io::ErrorKind::TimedOut => Ok(()),
             Err(err) => Err(err.into()),
         }
+    }
+
+    pub(crate) fn send(&self, buf: &[u8]) -> Result<()> {
+        self.port.write_all(buf)
+    }
+
+    pub fn try_clone(&self) -> Result<Self> {
+        Ok(Self {
+            num: self.num,
+            port: self.port.try_clone()?,
+            active: self.active.clone(),
+        })
+    }
+
+    pub fn spawn_thread(
+        mut deluxe_touch: Deluxe,
+        exit_sig: Arc<AtomicBool>,
+    ) -> Result<JoinHandle<Result<()>>> {
+        thread::Builder::new()
+            .name(format!("Deluxe P{} Touch Thread", deluxe_touch.num))
+            .spawn(move || {
+                while !exit_sig.load(Ordering::Relaxed) {
+                    deluxe_touch.process()?;
+                }
+
+                Ok(())
+            })
     }
 }

@@ -4,7 +4,7 @@ use std::io::{Read, Write};
 pub static SYNC: u8 = 0xE0;
 pub static MARK: u8 = 0xD0;
 
-pub trait ReadExt: Read {
+pub trait ReadExt: Read + Sized {
     fn read_u8(&mut self) -> io::Result<u8> {
         let mut buf = [0u8; 1];
         self.read_exact(&mut buf)?;
@@ -42,6 +42,6 @@ pub trait WriteExt: Write {
 
 impl<W: Write> WriteExt for W {}
 
-pub fn bit_read(input: &u8, n: usize) -> bool {
+pub fn bit_read(input: u8, n: usize) -> bool {
     input & (1 << n) != 0
 }

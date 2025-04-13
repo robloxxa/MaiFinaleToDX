@@ -1,5 +1,4 @@
-use std::borrow::Borrow;
-use std::io::BufWriter;
+use std::io::{BufReader, BufWriter, Result};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -7,221 +6,277 @@ use std::{io, thread};
 
 use std::thread::JoinHandle;
 
-use anyhow::{Context, Error, Result};
+use jvs_packets::jvs::{RequestPacket, ResponsePacket};
+use jvs_packets::{Packet, ReadPacket, WritePacket};
 use log::{error, info};
 use serial2::SerialPort;
 use winapi::ctypes::c_int;
 
-use crate::config::Config;
-use crate::config::{self, Input, Settings};
+use crate::config::{Input, Settings};
 use crate::helper_funcs::bit_read;
 use crate::keyboard::Keyboard;
-use crate::packets::rs232;
-use crate::packets::rs232::Packet;
 
-static BROADCAST: u8 = 0xFF;
+#[non_exhaustive]
+pub struct Cmd;
 
-static CMD_RESET: u8 = 0xF0;
-static CMD_RESET_ARGUMENT: u8 = 0xD9;
-static CMD_ASSIGN_ADDRESS: u8 = 0xF1;
-
-static CMD_IDENTIFY: u8 = 0x10;
-static CMD_COMMAND_REVISION: u8 = 0x11;
-static CMD_JVS_VERSION: u8 = 0x12;
-static CMD_COMMS_VERSION: u8 = 0x13;
-static CMD_CAPABILITIES: u8 = 0x14;
-// static CMD_CONVEY_ID: u8 = 0x15;
-static CMD_READ_DIGITAL: u8 = 0x20;
-type InputMapping = [[Option<c_int>; 8]; 4];
-
-pub struct RingEdge2 {
-    pub buf_writer: BufWriter<SerialPort>,
-    keyboard: Keyboard,
-
-    service_key: c_int,
-    test_key: c_int,
-    input_map: InputMapping,
-
-    req_packet: rs232::RequestPacket<16>,
-    res_packet: rs232::ResponsePacket<128>,
+impl Cmd {
+    pub const RESET: u8 = 0xF0;
+    pub const RESET_ARGUMENT: u8 = 0xD9;
+    pub const ASSIGN_ADDRESS: u8 = 0xF1;
+    pub const IDENTIFY: u8 = 0x10;
+    pub const COMMAND_REVISION: u8 = 0x11;
+    pub const JVS_VERSION: u8 = 0x12;
+    pub const COMMS_VERSION: u8 = 0x13;
+    pub const CAPABILITIES: u8 = 0x14;
+    pub const CONVEY_ID: u8 = 0x15;
+    pub const READ_DIGITAL: u8 = 0x20;
 }
 
-impl RingEdge2 {
-    pub fn new(port_name: impl AsRef<str>, input: impl Borrow<Input>) -> Result<Self, Error> {
+const UNUSED_MAPPING: c_int = -1;
+static BROADCAST: u8 = 0xFF;
+
+// type InputMapping = [[c_int; 8]; 4];
+
+pub struct JVS {
+    pub writer: BufWriter<SerialPort>,
+    pub reader: BufReader<SerialPort>,
+    keyboard: Keyboard,
+    input: Input,
+    req_packet: RequestPacket<16>,
+    res_packet: ResponsePacket<128>,
+}
+
+impl JVS {
+    pub fn new(port_name: impl AsRef<str>, input: &Input) -> Result<Self> {
         let mut port = SerialPort::open(port_name.as_ref(), 115_200)?;
         port.set_read_timeout(Duration::from_millis(500))?;
-        let input_settings = input.borrow();
-        let input_map = map_input_settings(&input_settings);
         Ok(Self {
-            buf_writer: BufWriter::new(port),
+            writer: BufWriter::with_capacity(512, port.try_clone()?),
+            reader: BufReader::with_capacity(512, port.try_clone()?),
             keyboard: Keyboard::new(),
-            service_key: input_settings.service,
-            test_key: input_settings.test,
-            input_map,
-            req_packet: rs232::RequestPacket::default(),
-            res_packet: rs232::ResponsePacket::default(),
+            input: input.clone(),
+            req_packet: RequestPacket::default(),
+            res_packet: ResponsePacket::default(),
         })
     }
 
     /// Writes a request packet to JVS Com port and immediately wait for a response, muting self.res_packet
-    fn cmd(&mut self, dest: u8, data: &[u8]) -> Result<()> {
-        self.req_packet
-            .set_dest(dest)
-            .set_data(data)
-            .write(&mut self.buf_writer)?;
-        self.res_packet.read(self.buf_writer.get_mut())?;
+    fn cmd(&mut self, dest: u8, data: &[u8]) -> io::Result<()> {
+        self.writer
+            .write_packet(self.req_packet.set_dest(dest).set_data(data))?;
+        self.reader.read_packet(&mut self.res_packet)?;
         Ok(())
     }
 
-    fn reset(&mut self) -> Result<()> {
+    fn reset(&mut self) -> io::Result<()> {
         self.req_packet
-            .set_dest(0xFF)
-            .set_data(&[CMD_RESET, CMD_RESET_ARGUMENT]);
+            .set_dest(BROADCAST)
+            .set_data(&[Cmd::RESET, Cmd::RESET_ARGUMENT]);
 
-        self.req_packet.write(self.buf_writer.get_mut())?;
-        self.req_packet.write(self.buf_writer.get_mut())?;
+        self.writer.write_packet(&self.req_packet)?;
+        self.writer.write_packet(&self.req_packet)?;
 
         Ok(())
     }
 
     pub fn init(&mut self, board: u8) -> Result<()> {
+        const RETRY_COUNT: u8 = 5;
+
+        self.reader
+            .get_mut()
+            .set_read_timeout(Duration::from_secs(2))?;
+        self.reader
+            .get_mut()
+            .set_write_timeout(Duration::from_secs(2))?;
+
+        for c in 0..RETRY_COUNT {
+            info!("Trying to initialize JVS. Attempt {}", c + 1);
+            match self.send_init(board) {
+                Ok(()) => {
+                    self.reader
+                        .get_mut()
+                        .set_read_timeout(Duration::from_secs(0))?;
+                    self.reader
+                        .get_mut()
+                        .set_write_timeout(Duration::from_secs(0))?;
+                    return Ok(());
+                }
+                Err(e) if e.kind() == io::ErrorKind::TimedOut => {}
+                Err(e) => return Err(e.into()),
+            }
+        }
+
+        error!("Init failed");
+        Err(io::Error::from(io::ErrorKind::TimedOut).into())
+    }
+
+    pub fn send_init(&mut self, board: u8) -> io::Result<()> {
         info!("JVS: Initializing");
 
         self.reset()?;
         info!("JVS: Reset sent");
         thread::sleep(Duration::from_millis(500));
 
-        self.cmd(BROADCAST, &[CMD_ASSIGN_ADDRESS, board])?;
+        self.cmd(BROADCAST, &[Cmd::ASSIGN_ADDRESS, board])?;
         info!("JVS: Assigned address {}", board,);
 
-        self.cmd(board, &[CMD_IDENTIFY])?;
+        self.cmd(board, &[Cmd::IDENTIFY])?;
         info!(
             "JVS: Board Info: {}",
-            std::str::from_utf8(self.res_packet.data())?
+            std::str::from_utf8(self.res_packet.data())
+                .map_err(|e| anyhow::Error::from(e))
+                .map_err(|_| io::Error::from(io::ErrorKind::Other))?
         );
 
-        self.cmd(board, &[CMD_COMMAND_REVISION])?;
+        self.cmd(board, &[Cmd::COMMAND_REVISION])?;
         info!(
             "JVS: Command Version Revision: REV{}.{}",
             self.res_packet.data()[0] / 10,
             self.res_packet.data()[0] % 10
         );
 
-        self.cmd(board, &[CMD_JVS_VERSION])?;
+        self.cmd(board, &[Cmd::JVS_VERSION])?;
         info!(
             "JVS: JVS Version: {}.{}",
             self.res_packet.data()[0] / 10,
             self.res_packet.data()[0] % 10
         );
 
-        self.cmd(board, &[CMD_COMMS_VERSION])?;
+        self.cmd(board, &[Cmd::COMMS_VERSION])?;
         info!(
             "JVS: Communications Version: {}.{}",
             self.res_packet.data()[0] / 10,
             self.res_packet.data()[0] % 10
         );
 
-        self.cmd(board, &[CMD_CAPABILITIES])?;
+        self.cmd(board, &[Cmd::CAPABILITIES])?;
         info!("JVS: Feature check: {:02X?}", self.res_packet.data());
 
         Ok(())
     }
 
-    fn read_digital(&mut self, board: u8) -> Result<()> {
-        self.cmd(board, &[CMD_READ_DIGITAL, 0x02, 0x02])?;
-
-        // debug!("{:02X?}", self.res_packet.get_slice());
+    fn read_digital(&mut self, board: u8) -> io::Result<()> {
+        self.cmd(board, &[Cmd::READ_DIGITAL, 0x02, 0x02])?;
 
         let data = self.res_packet.data();
-        if bit_read(&data[2], 6) {
-            self.keyboard.key_down(&self.test_key);
-        } else {
-            self.keyboard.key_up(&self.test_key);
-        }
 
-        if bit_read(&data[1], 7) {
-            self.keyboard.key_down(&self.service_key);
-        } else {
-            self.keyboard.key_up(&self.service_key);
-        }
+        // Input and Service Buttons
+        self.keyboard.key(self.input.test, bit_read(data[2], 6))?;
+        self.keyboard
+            .key(self.input.service, bit_read(data[1], 7))?;
 
-        for (i, bit) in data[2..=5].iter().enumerate() {
-            for bit_pos in 0..=7 {
-                if let Some(key) = self.input_map[i][bit_pos] {
-                    if !bit_read(bit, bit_pos) {
-                        self.keyboard.key_down(&key);
-                    } else {
-                        self.keyboard.key_up(&key);
-                    }
-                }
-            }
-        }
+        // Player 1 buttons
+        self.keyboard
+            .key(self.input.p1_btn3, !bit_read(data[2], 0))?;
+        self.keyboard
+            .key(self.input.p1_btn1, !bit_read(data[2], 2))?;
+        self.keyboard
+            .key(self.input.p1_btn2, !bit_read(data[2], 3))?;
+
+        self.keyboard
+            .key(self.input.p1_btn8, !bit_read(data[3], 3))?;
+        self.keyboard
+            .key(self.input.p1_btn7, !bit_read(data[3], 4))?;
+        self.keyboard
+            .key(self.input.p1_btn6, !bit_read(data[3], 5))?;
+        self.keyboard
+            .key(self.input.p1_btn5, !bit_read(data[3], 6))?;
+        self.keyboard
+            .key(self.input.p1_btn4, !bit_read(data[3], 7))?;
+
+        // Player 2 Buttons
+        self.keyboard
+            .key(self.input.p2_btn3, !bit_read(data[4], 0))?;
+        self.keyboard
+            .key(self.input.p2_btn1, !bit_read(data[4], 4))?;
+        self.keyboard
+            .key(self.input.p2_btn4, !bit_read(data[4], 3))?;
+
+        self.keyboard
+            .key(self.input.p2_btn8, !bit_read(data[5], 3))?;
+        self.keyboard
+            .key(self.input.p2_btn7, !bit_read(data[5], 4))?;
+        self.keyboard
+            .key(self.input.p2_btn6, !bit_read(data[5], 5))?;
+        self.keyboard
+            .key(self.input.p2_btn5, !bit_read(data[5], 6))?;
+        self.keyboard
+            .key(self.input.p2_btn4, !bit_read(data[5], 7))?;
+
         Ok(())
     }
 }
-
-fn map_input_settings(settings: &config::Input) -> InputMapping {
-    [
-        [
-            Some(settings.p1_btn3),
-            None,
-            Some(settings.p1_btn1),
-            Some(settings.p1_btn2),
-            None,
-            None,
-            None,
-            None,
-        ],
-        [
-            None,
-            None,
-            None,
-            Some(settings.p1_btn8),
-            Some(settings.p1_btn7),
-            Some(settings.p1_btn6),
-            Some(settings.p1_btn5),
-            Some(settings.p1_btn4),
-        ],
-        [
-            Some(settings.p2_btn3),
-            None,
-            Some(settings.p2_btn1),
-            Some(settings.p2_btn2),
-            None,
-            None,
-            None,
-            None,
-        ],
-        [
-            None,
-            None,
-            None,
-            Some(settings.p2_btn8),
-            Some(settings.p2_btn7),
-            Some(settings.p2_btn6),
-            Some(settings.p2_btn5),
-            Some(settings.p2_btn4),
-        ],
-    ]
-}
+//
+// fn map_input_settings(settings: &Input) -> InputMapping {
+//     [
+//         [
+//             settings.p1_btn3,
+//             UNUSED_MAPPING,
+//             settings.p1_btn1,
+//             settings.p1_btn2,
+//             UNUSED_MAPPING,
+//             UNUSED_MAPPING,
+//             UNUSED_MAPPING,
+//             UNUSED_MAPPING,
+//         ],
+//         [
+//             UNUSED_MAPPING,
+//             UNUSED_MAPPING,
+//             UNUSED_MAPPING,
+//             settings.p1_btn8,
+//             settings.p1_btn7,
+//             settings.p1_btn6,
+//             settings.p1_btn5,
+//             settings.p1_btn4,
+//         ],
+//         [
+//             settings.p2_btn3,
+//             UNUSED_MAPPING,
+//             settings.p2_btn1,
+//             settings.p2_btn2,
+//             UNUSED_MAPPING,
+//             UNUSED_MAPPING,
+//             UNUSED_MAPPING,
+//             UNUSED_MAPPING,
+//         ],
+//         [
+//             UNUSED_MAPPING,
+//             UNUSED_MAPPING,
+//             UNUSED_MAPPING,
+//             settings.p2_btn8,
+//             settings.p2_btn7,
+//             settings.p2_btn6,
+//             settings.p2_btn5,
+//             settings.p2_btn4,
+//         ],
+//     ]
+// }
 
 pub fn setup(
     settings: &Settings,
-    running: &Arc<AtomicBool>,
-) -> Result<JoinHandle<Result<()>>> {
-    let mut jvs = RingEdge2::new(&settings.jvs_port, &settings.input)?;
-    let exit_sig = running.clone();
-    jvs.init(1)?;
+    handles: &mut Vec<JoinHandle<Result<()>>>,
+    running: Arc<AtomicBool>,
+) -> Result<()> {
+    let mut jvs = JVS::new(&settings.jvs_port, &settings.input)?;
+    jvs.send_init(0)?;
+    handles.push(
+        thread::Builder::new()
+            .name("Finale JVS Thread".to_string())
+            .spawn(move || -> Result<()> {
+                while !running.load(Ordering::Acquire) {
+                    match jvs.read_digital(1) {
+                        Ok(()) => {}
+                        Err(ref e) if e.kind() == io::ErrorKind::TimedOut => {}
+                        Err(e) => {
+                            error!("Failed to read digital. Error: {}", e);
 
-    thread::Builder::new()
-        .name("Finale JVS Thread".to_string())
-        .spawn(move || -> Result<()> {
-            while exit_sig.load(Ordering::Acquire) {
-                if let Err(err) = jvs.read_digital(1) {
-                    error!("JVS: error: {}", err);
-                };
-            }
-            Ok(())
-        })
-        .with_context(|| "couldn't spawn JVS thread")
+                            return Err(e.into());
+                        }
+                    }
+                }
+                Ok(())
+            })?,
+    );
+
+    Ok(())
 }

@@ -3,20 +3,16 @@
 //!
 //! Since PreDX cabinet touch lacks some Touch areas that Deluxe touch has, we basically map them to
 //! existing ones in [`finale`] module
-//! So if you press, for example, B1 area in Maimai DX, it will also press E1 and E2 (which is is close to B1)
+//! So if you press, for example, B1 area in Maimai DX, it will also press E1 and E2 (which is close to B1)
 
-use crate::config::{Config, Settings};
-use anyhow::{Context, Error, Result};
-use log::info;
-
-use std::io::Write;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
-use std::thread::JoinHandle;
-use std::{io, thread};
-
+use crate::config::Settings;
 use crate::touch::deluxe::*;
 use crate::touch::finale::*;
+use std::io::Result;
+use std::io::Write;
+use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
+use std::thread::JoinHandle;
 
 mod deluxe;
 mod finale;
@@ -76,54 +72,33 @@ pub const STAT: &[u8] = "{STAT}".as_bytes();
 //     Ok((finale_handle, deluxe_handle))
 // }
 
-pub fn setup(config: &Settings, exit_sig: &Arc<AtomicBool>) -> Result<Vec<JoinHandle<Result<()>>>> {
-    let mut handles = Vec::with_capacity(3);
-    let (p1_active, p2_active) = (
-        Arc::new(AtomicBool::new(false)),
-        Arc::new(AtomicBool::new(false)),
-    );
-
-    let mut dx_p1 = Deluxe::new(&config.touch_dx_p1_port, &p1_active)?;
-    let mut dx_p2 = Deluxe::new(&config.touch_dx_p2_port, &p2_active)?;
-
-    let dx_p1_port = dx_p1.port.try_clone()?;
-    let dx_p2_port = dx_p2.port.try_clone()?;
+pub fn setup(
+    config: &Settings,
+    handles: &mut Vec<JoinHandle<Result<()>>>,
+    exit_sig: Arc<AtomicBool>,
+) -> Result<()> {
+    let dx_p1 = Deluxe::new(&config.touch_dx_p1_port, 1).ok();
+    let dx_p2 = Deluxe::new(&config.touch_dx_p2_port, 2).ok();
 
     let mut finale = Finale::new(
         &config.touch_finale_port,
-        dx_p1_port,
-        dx_p2_port,
-        &p1_active,
-        &p2_active,
+        dx_p1.as_ref().and_then(|x| x.try_clone().ok()),
+        dx_p2.as_ref().and_then(|x| x.try_clone().ok()),
     )?;
 
-    let dx_sig = exit_sig.clone();
-    let fe_sig = exit_sig.clone();
+    finale.init()?;
 
-    handles.push(
-        thread::Builder::new()
-        .name("Deluxe Touch Thread".to_owned())
-        .spawn(move || {
-            while dx_sig.load(Ordering::Relaxed) {
-                dx_p1.process()?;
-                dx_p2.process()?;
-            }
+    let finale_thread = Finale::spawn_thread(finale, exit_sig.clone())?;
+    let dx_p1_thread = dx_p1
+        .and_then(|x| Some(Deluxe::spawn_thread(x, exit_sig.clone())))
+        .transpose()?;
+    let dx_p2_thread = dx_p2
+        .and_then(|x| Some(Deluxe::spawn_thread(x, exit_sig.clone())))
+        .transpose()?;
 
-            Ok(())
-        }).with_context(|| "Failed to spawn Deluxe touch thread")?
-    );
+    handles.push(finale_thread);
+    dx_p1_thread.map(|t| handles.push(t));
+    dx_p2_thread.map(|t| handles.push(t));
 
-    handles.push(
-        thread::Builder::new()
-        .name("Finale Touch Thread".to_owned())
-        .spawn(move || {
-            while fe_sig.load(Ordering::Relaxed) {
-                finale.process()?;
-            }
-            
-            Ok(())
-        }).with_context(|| "Failed to spawn Finale touch thread")?
-    );
-
-    Ok(handles)
+    Ok(())
 }

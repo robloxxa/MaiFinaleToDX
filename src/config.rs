@@ -28,7 +28,6 @@ pub struct Config {
     #[clap_serde]
     #[command(flatten)]
     pub settings: Settings,
-
 }
 
 impl AsRef<Settings> for Config {
@@ -50,7 +49,7 @@ pub struct Settings {
     pub touch: bool,
 
     /// Enable JVS feature
-    /// 
+    ///
     /// This will try to read from JVS com port (specified by `jvs_port`) and use it as a keyboard.
     /// See [`Input`] to see what keys are emulated.
     #[arg(long, default_value = "false", action=ArgAction::SetTrue)]
@@ -61,10 +60,10 @@ pub struct Settings {
     pub reader: bool,
 
     /// Enable Spice API feature
-    /// 
+    ///
     /// WARNING: NOT IMPLEMENTED YET
-    #[arg(long, default_value = "false", action=ArgAction::SetTrue)]
-    pub spice_api: bool,
+    // #[arg(long, default_value = "false", action=ArgAction::SetTrue)]
+    // pub spice_api: bool,
 
     /// COM Port for Finale touch
     #[arg(long, default_value = "COM23")]
@@ -90,14 +89,18 @@ pub struct Settings {
     pub reader_device_file: Option<String>,
 
     /// Spice port for Spice API
-    /// 
+    ///
     /// WARNING: NOT IMPLEMENTED YET
-    #[arg(long, default_value = "1337")]
-    pub spice_port: String,
+    // #[arg(long, default_value = "1337")]
+    // pub spice_port: String,
 
     #[clap_serde]
     #[arg(skip)]
     pub input: Input,
+
+    #[clap_serde]
+    #[arg(skip)]
+    pub touch_threshold: TouchThreshold,
 }
 
 impl AsRef<Input> for Settings {
@@ -114,39 +117,42 @@ pub struct Input {
     pub test: c_int,
 
     #[default(P1_BTN1_DEFAULT)]
-	pub p1_btn1: c_int,
+    pub p1_btn1: c_int,
     #[default(P1_BTN2_DEFAULT)]
-	pub p1_btn2: c_int,
+    pub p1_btn2: c_int,
     #[default(P1_BTN3_DEFAULT)]
-	pub p1_btn3: c_int,
+    pub p1_btn3: c_int,
     #[default(P1_BTN4_DEFAULT)]
-	pub p1_btn4: c_int,
+    pub p1_btn4: c_int,
     #[default(P1_BTN5_DEFAULT)]
-	pub p1_btn5: c_int,
+    pub p1_btn5: c_int,
     #[default(P1_BTN6_DEFAULT)]
-	pub p1_btn6: c_int,
+    pub p1_btn6: c_int,
     #[default(P1_BTN7_DEFAULT)]
-	pub p1_btn7: c_int,
+    pub p1_btn7: c_int,
     #[default(P1_BTN8_DEFAULT)]
-	pub p1_btn8: c_int,
+    pub p1_btn8: c_int,
 
     #[default(P2_BTN1_DEFAULT)]
-	pub p2_btn1: c_int,
+    pub p2_btn1: c_int,
     #[default(P2_BTN2_DEFAULT)]
-	pub p2_btn2: c_int,
+    pub p2_btn2: c_int,
     #[default(P2_BTN3_DEFAULT)]
-	pub p2_btn3: c_int,
+    pub p2_btn3: c_int,
     #[default(P2_BTN4_DEFAULT)]
-	pub p2_btn4: c_int,
+    pub p2_btn4: c_int,
     #[default(P2_BTN5_DEFAULT)]
-	pub p2_btn5: c_int,
+    pub p2_btn5: c_int,
     #[default(P2_BTN6_DEFAULT)]
-	pub p2_btn6: c_int,
+    pub p2_btn6: c_int,
     #[default(P2_BTN7_DEFAULT)]
-	pub p2_btn7: c_int,
+    pub p2_btn7: c_int,
     #[default(P2_BTN8_DEFAULT)]
-	pub p2_btn8: c_int,
+    pub p2_btn8: c_int,
 }
+
+#[derive(ClapSerde, Deserialize, Serialize, Debug, Clone)]
+pub struct TouchThreshold {}
 
 const TEST_DEFAULT: c_int = 0x54;
 const SERVICE_DEFAULT: c_int = 0x33;
@@ -166,7 +172,7 @@ const P1_BTN6_DEFAULT: c_int = 0x5A;
 // A
 const P1_BTN7_DEFAULT: c_int = 0x41;
 // Q
-const P1_BTN8_DEFAULT: c_int = 0x51; 
+const P1_BTN8_DEFAULT: c_int = 0x51;
 
 const P2_BTN1_DEFAULT: c_int = VK_NUMPAD8;
 const P2_BTN2_DEFAULT: c_int = VK_NUMPAD9;
