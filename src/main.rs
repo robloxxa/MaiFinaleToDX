@@ -23,6 +23,7 @@ mod helper_funcs;
 mod jvs;
 mod keyboard;
 mod touch;
+mod card_reader;
 
 fn main() {
     // let mut handles: Vec<JoinHandle<io::Result<()>>> = Vec::new();
@@ -149,7 +150,9 @@ fn setup_handles(
         jvs::setup(cfg, &mut handles, exit_sig.clone())?;
     }
 
-    if cfg.reader {}
+    if cfg.reader {
+        card_reader::setup(cfg, &mut handles, exit_sig.clone())?;
+    }
 
     Ok(handles)
 }
