@@ -6,6 +6,7 @@ use config::Settings;
 use flexi_logger::{colored_opt_format, Logger};
 use log::{debug, error, info, warn};
 
+use crate::helper_funcs::log_error;
 use anyhow::Context;
 use anyhow::__private::kind::TraitKind;
 use std::fs::File;
@@ -17,13 +18,13 @@ use std::thread::JoinHandle;
 use winapi::um::timeapi;
 
 // mod card_reader;
+mod card_reader;
 mod config;
 mod error;
 mod helper_funcs;
 mod jvs;
 mod keyboard;
 mod touch;
-mod card_reader;
 
 fn main() {
     // let mut handles: Vec<JoinHandle<io::Result<()>>> = Vec::new();
@@ -143,15 +144,21 @@ fn setup_handles(
     let mut handles = Vec::with_capacity(4);
 
     if cfg.touch {
-        touch::setup(cfg, &mut handles, exit_sig.clone())?;
+        touch::setup(cfg, &mut handles, exit_sig.clone())
+            .map_err(log_error)
+            .ok();
     };
 
     if cfg.jvs {
-        jvs::setup(cfg, &mut handles, exit_sig.clone())?;
+        jvs::setup(cfg, &mut handles, exit_sig.clone())
+            .map_err(log_error)
+            .ok();
     }
 
     if cfg.reader {
-        card_reader::setup(cfg, &mut handles, exit_sig.clone())?;
+        card_reader::setup(cfg, &mut handles, exit_sig.clone())
+            .map_err(log_error)
+            .ok();
     }
 
     Ok(handles)
