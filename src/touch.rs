@@ -8,8 +8,12 @@
 use crate::config::Settings;
 use crate::touch::deluxe::*;
 use crate::touch::finale::*;
-use std::io::Result;
+use arrayvec;
+use arrayvec::ArrayVec;
+use jvs_packets::ReadPacket;
+use log::info;
 use std::io::Write;
+use std::io::{Read, Result};
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::thread::JoinHandle;
@@ -20,6 +24,7 @@ mod finale;
 pub const RSET: &[u8] = "{RSET}".as_bytes();
 pub const HALT: &[u8] = "{HALT}".as_bytes();
 pub const STAT: &[u8] = "{STAT}".as_bytes();
+
 
 // pub fn spawn_thread(
 //     args: &Settings,
@@ -77,6 +82,8 @@ pub fn setup(
     handles: &mut Vec<JoinHandle<Result<()>>>,
     exit_sig: Arc<AtomicBool>,
 ) -> Result<()> {
+    info!("Initializing Touchscreen");
+
     let dx_p1 = Deluxe::new(&config.touch_dx_p1_port, 1).ok();
     let dx_p2 = Deluxe::new(&config.touch_dx_p2_port, 2).ok();
 
@@ -99,6 +106,8 @@ pub fn setup(
     handles.push(finale_thread);
     dx_p1_thread.map(|t| handles.push(t));
     dx_p2_thread.map(|t| handles.push(t));
+
+    info!("Touchscreen is ready. Good luck touchin'");
 
     Ok(())
 }

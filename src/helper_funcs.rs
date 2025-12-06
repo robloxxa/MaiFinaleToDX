@@ -51,3 +51,19 @@ pub fn log_error<E: std::fmt::Display>(err: E) -> E {
     error!("{}", err);
     err
 }
+
+// pub trait LogResultErr<R, E: std::fmt::Display>: Sized {
+//     fn log_err<S: std::fmt::Display>(self, msg: S) -> Result<R, E>;
+// }
+// 
+// impl<R, E: std::fmt::Display> LogResultErr<R, E> for Result<R, E> {
+//     fn log_err<S: std::fmt::Display>(self, msg: S) -> Result<R, E> {
+//         match self {
+//             Ok(r) => Ok(r),
+//             Err(e) => {
+//                 error!("{}: {}", msg, e);
+//                 Err(e)
+//             }
+//         }
+//     }
+// }
