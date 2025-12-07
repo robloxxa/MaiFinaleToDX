@@ -5,14 +5,16 @@ use crate::touch::deluxe::Deluxe;
 use crate::touch::{HALT, STAT};
 use serial2::SerialPort;
 use std::io::Result;
-use std::io::{BufReader, BufWriter, Read, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::time::Duration;
-use std::{io, mem, ptr, thread};
+use std::{io, thread};
 
-pub struct FrameParser<const MAX_SIZE: usize = 14> {
+pub const TOUCH_MAX_SIZE: usize = 14;
+pub const TOUCH_SETTINGS_MAX_SIZE: usize = 6;
+
+pub struct FrameParser<const MAX_SIZE: usize = TOUCH_MAX_SIZE> {
     inner: [u8; 14],
     count: usize,
 }
@@ -25,7 +27,6 @@ pub struct Finale {
     pub dx_p1: Option<Deluxe>,
     pub dx_p2: Option<Deluxe>,
 }
-
 
 impl Finale {
     pub fn new(
@@ -47,8 +48,41 @@ impl Finale {
     }
 
     pub fn process(&mut self) -> Result<()> {
-        self.receive()?;
-
+        match self.receive()? {
+            Some(len) if len == TOUCH_MAX_SIZE => {
+                    if let Some(p1) = &self.dx_p1 {
+                        p1.send(&self.buf[1..5])?;
+                    }
+                    
+                    if let Some(p2) = &self.dx_p2 {
+                        p2.send(&self.buf[7..11])?;
+                    }
+                    
+                    Ok(())
+            }
+            Some(len) if len == TOUCH_SETTINGS_MAX_SIZE => {
+                info!(
+                    "Reading {:?}",
+                    self.buf[0..=TOUCH_SETTINGS_MAX_SIZE]
+                        .iter()
+                        .map(|&u| u as char)
+                        .collect::<Vec<char>>()
+                );
+                
+                Ok(())
+            }
+            Some(_) => {
+                info!(
+                    "Reading {:?}",
+                    self.buf
+                        .iter()
+                        .map(|&u| u as char)
+                        .collect::<Vec<char>>()
+                );
+                Ok(())
+            }
+            None => Ok(()),
+        }
 
         // match self.reader.read_u8() {
         //     Ok(b) => {
@@ -81,37 +115,37 @@ impl Finale {
         //     Err(ref err) if err.kind() == io::ErrorKind::TimedOut => Ok(()),
         //     Err(err) => Err(err.into()),
         // }
-        match self.port.read_exact(&mut self.buf[0..=6]) {
-            Ok(_) => {
-                info!(
-                    "Reading {:?}",
-                    self.buf[0..=6]
-                        .iter()
-                        .map(|&u| u as char)
-                        .collect::<Vec<char>>()
-                );
-                // TODO: Check how well behave relaxed ordering
-                // Also maybe with serial2 we can read it without any delay? Since it uses different timeout settings.
-                // if self.deluxe_active[0].load(Ordering::Relaxed) {
-                //     Self::write_to_deluxe(&mut self.read_buffer[1..5], &mut self.deluxe_ports[0])?;
-                // }
-                //
-                // if self.deluxe_active[1].load(Ordering::Relaxed) {
-                //     Self::write_to_deluxe(&mut self.read_buffer[7..11], &mut self.deluxe_ports[1])?;
-                // }
+        //     match self.port.read_exact(&mut self.buf[0..=self.byte_count]) {
+        //         Ok(_) => {
+        //             info!(
+        //                 "Reading {:?}",
+        //                 self.buf[0..=6]
+        //                     .iter()
+        //                     .map(|&u| u as char)
+        //                     .collect::<Vec<char>>()
+        //             );
+        //             // TODO: Check how well behave relaxed ordering
+        //             // Also maybe with serial2 we can read it without any delay? Since it uses different timeout settings.
+        //             // if self.deluxe_active[0].load(Ordering::Relaxed) {
+        //             //     Self::write_to_deluxe(&mut self.read_buffer[1..5], &mut self.deluxe_ports[0])?;
+        //             // }
+        //             //
+        //             // if self.deluxe_active[1].load(Ordering::Relaxed) {
+        //             //     Self::write_to_deluxe(&mut self.read_buffer[7..11], &mut self.deluxe_ports[1])?;
+        //             // }
 
-                Ok(())
-            }
-            Err(ref err) if err.kind() == io::ErrorKind::TimedOut => Ok(()),
-            Err(err) => Err(err.into()),
-        }
+        //             Ok(())
+        //         }
+        //         Err(ref err) if err.kind() == io::ErrorKind::TimedOut => Ok(()),
+        //         Err(err) => Err(err.into()),
+        //     }
     }
 
     pub fn init(&mut self) -> Result<()> {
         const RETRY_COUNT: u8 = 5;
 
-        self.port.set_read_timeout(Duration::from_secs(2))?;
-        self.port.set_write_timeout(Duration::from_secs(2))?;
+        self.port.set_read_timeout(Duration::from_secs(5))?;
+        self.port.set_write_timeout(Duration::from_secs(5))?;
 
         for c in 0..RETRY_COUNT {
             info!("Trying to initialize Finale Touchscreen. Attempt {}", c + 1);
@@ -171,17 +205,40 @@ impl Finale {
     }
 
     pub fn send(&self, buf: &[u8]) -> Result<()> {
-        debug!("Finale Touch: Sending {}", 
-            buf.iter().map(|&u| if u > 89 { String::from(u as char)} else { u.to_string() }).
-                .collect::<String>());
+        debug!(
+            "Finale Touch: Sending {}",
+            buf.iter()
+                .map(|&u| if u > 89 {
+                    String::from(u as char)
+                } else {
+                    u.to_string()
+                })
+                .collect::<String>()
+        );
 
         self.port.write_all(buf)
     }
 
     pub fn receive(&mut self) -> Result<Option<usize>> {
-        self.byte_count += self.port.read(&mut self.buf[self.byte_count..])?;
+        match self.port.read(&mut self.buf[self.byte_count..]) {
+            Ok(cnt) => {
+                self.byte_count += cnt;
+            }
+            Err(ref e) if e.kind() == io::ErrorKind::TimedOut => return Ok(None),
+            Err(e) => {
+                self.byte_count = 0;
+                return Err(e);
+            }
+        }
 
         let mut buf = &mut self.buf[..self.byte_count];
+        info!(
+            "Reading {:?}",
+            buf
+                .iter()
+                .map(|&u| u as char)
+                .collect::<Vec<char>>()
+        );
 
         match buf.iter().position(|b| b == &b'(') {
             Some(0) => {}
@@ -244,7 +301,9 @@ fn convert_to_dx_buf(buf: &[u8]) -> [u8; 9] {
                 continue;
             }
 
-            FINALE_AREAS[i][pos].iter().for_each(|a| write_buffer[a.0] |= a.1);
+            FINALE_AREAS[i][pos]
+                .iter()
+                .for_each(|a| write_buffer[a.0] |= a.1);
         }
     }
 

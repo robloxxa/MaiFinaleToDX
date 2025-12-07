@@ -96,6 +96,7 @@ pub fn setup(
     finale.init()?;
 
     let finale_thread = Finale::spawn_thread(finale, exit_sig.clone())?;
+    
     let dx_p1_thread = dx_p1
         .and_then(|x| Some(Deluxe::spawn_thread(x, exit_sig.clone())))
         .transpose()?;
