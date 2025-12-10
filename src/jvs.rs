@@ -12,7 +12,8 @@ use log::{error, info};
 use serial2::SerialPort;
 use winapi::ctypes::c_int;
 
-use crate::config::{Input, Settings};
+use crate::config;
+use crate::config::Input;
 use crate::helper_funcs::bit_read;
 use crate::keyboard::Keyboard;
 
@@ -49,7 +50,9 @@ pub struct JVS {
 impl JVS {
     pub fn new(port_name: impl AsRef<str>, input: &Input) -> Result<Self> {
         let mut port = SerialPort::open(port_name.as_ref(), 115_200)?;
+        
         port.set_read_timeout(Duration::from_millis(500))?;
+        
         Ok(Self {
             writer: BufWriter::with_capacity(512, port.try_clone()?),
             reader: BufReader::with_capacity(512, port.try_clone()?),
@@ -206,59 +209,16 @@ impl JVS {
         Ok(())
     }
 }
-//
-// fn map_input_settings(settings: &Input) -> InputMapping {
-//     [
-//         [
-//             settings.p1_btn3,
-//             UNUSED_MAPPING,
-//             settings.p1_btn1,
-//             settings.p1_btn2,
-//             UNUSED_MAPPING,
-//             UNUSED_MAPPING,
-//             UNUSED_MAPPING,
-//             UNUSED_MAPPING,
-//         ],
-//         [
-//             UNUSED_MAPPING,
-//             UNUSED_MAPPING,
-//             UNUSED_MAPPING,
-//             settings.p1_btn8,
-//             settings.p1_btn7,
-//             settings.p1_btn6,
-//             settings.p1_btn5,
-//             settings.p1_btn4,
-//         ],
-//         [
-//             settings.p2_btn3,
-//             UNUSED_MAPPING,
-//             settings.p2_btn1,
-//             settings.p2_btn2,
-//             UNUSED_MAPPING,
-//             UNUSED_MAPPING,
-//             UNUSED_MAPPING,
-//             UNUSED_MAPPING,
-//         ],
-//         [
-//             UNUSED_MAPPING,
-//             UNUSED_MAPPING,
-//             UNUSED_MAPPING,
-//             settings.p2_btn8,
-//             settings.p2_btn7,
-//             settings.p2_btn6,
-//             settings.p2_btn5,
-//             settings.p2_btn4,
-//         ],
-//     ]
-// }
 
-pub fn setup(
-    settings: &Settings,
+pub fn init(
+    settings: &config::JVS,
     handles: &mut Vec<JoinHandle<Result<()>>>,
     running: Arc<AtomicBool>,
 ) -> Result<()> {
-    let mut jvs = JVS::new(&settings.jvs_port, &settings.input)?;
-    jvs.send_init(0)?;
+    let mut jvs = JVS::new(&settings.port, &settings.input)?;
+    
+    jvs.init(0)?;
+    
     handles.push(
         thread::Builder::new()
             .name("Finale JVS Thread".to_string())

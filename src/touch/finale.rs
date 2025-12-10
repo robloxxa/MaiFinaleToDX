@@ -1,8 +1,6 @@
-use log::{debug, error, info};
-
-use crate::helper_funcs::{bit_read, ReadExt};
-use crate::touch::deluxe::Deluxe;
 use crate::touch::{HALT, STAT};
+use crate::{helper_funcs::bit_read, touch::deluxe::Deluxe};
+use log::{debug, error, info};
 use serial2::SerialPort;
 use std::io::Result;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -14,16 +12,102 @@ use std::{io, thread};
 pub const TOUCH_MAX_SIZE: usize = 14;
 pub const TOUCH_SETTINGS_MAX_SIZE: usize = 6;
 
+pub enum ParsedPacket<'a> {
+    Input(&'a [u8]),
+    Data(&'a [u8]),
+    Incompleted,
+}
+
 pub struct FrameParser<const MAX_SIZE: usize = TOUCH_MAX_SIZE> {
-    inner: [u8; 14],
-    count: usize,
+    inner: [u8; MAX_SIZE],
+    idx: usize,
+    in_frame: bool,
+}
+
+impl FrameParser {
+    pub fn new() -> Self {
+        Self {
+            inner: Default::default(),
+            idx: 0,
+            in_frame: false,
+        }
+    }
+
+    pub fn push(&mut self, b: u8) -> ParsedPacket {
+        match b {
+            b'(' => {
+                self.in_frame = true;
+                self.idx = 0;
+                ParsedPacket::Incompleted
+            }
+
+            b')' => {
+                if !self.in_frame {
+                    return ParsedPacket::Incompleted;
+                }
+
+                self.in_frame = false;
+
+                // валидные длины: 4 или 12
+                match self.idx {
+                    4 => ParsedPacket::Data(&self.inner[..self.idx]),
+                    12 => ParsedPacket::Input(&self.inner[..self.idx]),
+                    _ => ParsedPacket::Incompleted,
+                }
+            }
+
+            _ => {
+                if !self.in_frame {
+                    return ParsedPacket::Incompleted; // мусор вне фрейма
+                }
+
+                // пока собираем содержимое скобок
+                if self.idx < 12 {
+                    self.inner[self.idx] = b;
+                    self.idx += 1;
+                } else {
+                    // переполнение → сброс, ищем новый '('
+                    self.in_frame = false;
+                    self.idx = 0;
+                }
+
+                ParsedPacket::Incompleted
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    
+    #[test]
+    fn test_frame_parser() {
+        let mut parser = FrameParser::new();
+        
+        let first_packet = "LABR";
+        let second_packet = "ABCD@@ABCD@@";
+        let packet = format!("ASD)({})({})", first_packet, second_packet);
+        
+        for &b in packet.as_bytes() {
+            match parser.push(b) {
+                ParsedPacket::Input(p) => {
+                    assert_eq!(second_packet.as_bytes(), p)
+                },
+                ParsedPacket::Data(p) => {
+                    assert_eq!(first_packet.as_bytes(), p)
+                },
+                ParsedPacket::Incompleted => {}
+            }
+        }
+    }
 }
 
 pub struct Finale {
-    pub port: SerialPort,
-
-    byte_count: usize,
+    parser: FrameParser,
     buf: [u8; 14],
+
+    pub port: SerialPort,
     pub dx_p1: Option<Deluxe>,
     pub dx_p2: Option<Deluxe>,
 }
@@ -40,105 +124,11 @@ impl Finale {
 
         Ok(Self {
             port,
-            byte_count: 0,
+            parser: FrameParser::new(),
             buf: [0u8; 14],
             dx_p1,
             dx_p2,
         })
-    }
-
-    pub fn process(&mut self) -> Result<()> {
-        match self.receive()? {
-            Some(len) if len == TOUCH_MAX_SIZE => {
-                    if let Some(p1) = &self.dx_p1 {
-                        p1.send(&self.buf[1..5])?;
-                    }
-                    
-                    if let Some(p2) = &self.dx_p2 {
-                        p2.send(&self.buf[7..11])?;
-                    }
-                    
-                    Ok(())
-            }
-            Some(len) if len == TOUCH_SETTINGS_MAX_SIZE => {
-                info!(
-                    "Reading {:?}",
-                    self.buf[0..=TOUCH_SETTINGS_MAX_SIZE]
-                        .iter()
-                        .map(|&u| u as char)
-                        .collect::<Vec<char>>()
-                );
-                
-                Ok(())
-            }
-            Some(_) => {
-                info!(
-                    "Reading {:?}",
-                    self.buf
-                        .iter()
-                        .map(|&u| u as char)
-                        .collect::<Vec<char>>()
-                );
-                Ok(())
-            }
-            None => Ok(()),
-        }
-
-        // match self.reader.read_u8() {
-        //     Ok(b) => {
-        //         self.byte_count += 1;
-        //         match b {
-        //             b'(' => {
-        //                 self.byte_count = 0;
-        //                 self.read_buffer[0] = b
-        //             }
-        //             b')' => {
-        //                 self.read_buffer[self.byte_count] = b;
-        //                 if self.byte_count > 5 {
-        //                     self.dx_p1.as_ref().map_or_else(
-        //                         || Ok(()),
-        //                         |dx| dx.send(&convert_to_dx_buf(&self.read_buffer[1..5])),
-        //                     )?;
-        //                     self.dx_p2.as_ref().map_or_else(
-        //                         || Ok(()),
-        //                         |dx| dx.send(&convert_to_dx_buf(&self.read_buffer[1..5])),
-        //                     )?;
-        //                 } else {}
-        //                 // info!("Reading {:?}", self.read_buffer[..=self.byte_count].iter().map(|&u| u as char).collect::<Vec<char>>());
-        //             }
-        //             _ => {
-        //                 self.read_buffer[self.byte_count] = b;
-        //             }
-        //         };
-        //         Ok(())
-        //     }
-        //     Err(ref err) if err.kind() == io::ErrorKind::TimedOut => Ok(()),
-        //     Err(err) => Err(err.into()),
-        // }
-        //     match self.port.read_exact(&mut self.buf[0..=self.byte_count]) {
-        //         Ok(_) => {
-        //             info!(
-        //                 "Reading {:?}",
-        //                 self.buf[0..=6]
-        //                     .iter()
-        //                     .map(|&u| u as char)
-        //                     .collect::<Vec<char>>()
-        //             );
-        //             // TODO: Check how well behave relaxed ordering
-        //             // Also maybe with serial2 we can read it without any delay? Since it uses different timeout settings.
-        //             // if self.deluxe_active[0].load(Ordering::Relaxed) {
-        //             //     Self::write_to_deluxe(&mut self.read_buffer[1..5], &mut self.deluxe_ports[0])?;
-        //             // }
-        //             //
-        //             // if self.deluxe_active[1].load(Ordering::Relaxed) {
-        //             //     Self::write_to_deluxe(&mut self.read_buffer[7..11], &mut self.deluxe_ports[1])?;
-        //             // }
-
-        //             Ok(())
-        //         }
-        //         Err(ref err) if err.kind() == io::ErrorKind::TimedOut => Ok(()),
-        //         Err(err) => Err(err.into()),
-        //     }
     }
 
     pub fn init(&mut self) -> Result<()> {
@@ -170,13 +160,8 @@ impl Finale {
     }
 
     fn send_init(&mut self) -> io::Result<()> {
-        let mut read_buffer: [u8; 6] = [0; 6];
-
         info!("Sending HALT packet");
-        self.port.write_all(HALT)?;
-
-        // Discard input buffer so there is no data if touch was working before
-        self.port.discard_input_buffer()?;
+        self.halt()?;
 
         for panel in [b'L', b'R'] {
             info!("Getting threshold from {} panel areas", panel as char);
@@ -186,16 +171,12 @@ impl Finale {
         }
 
         info!("Sending STAT packet");
-        self.port.write_all(STAT)?;
+        self.stat()?;
 
         Ok(())
     }
 
     fn get_threshold(&mut self, panel: u8, area: u8) -> io::Result<()> {
-        // info!(
-        //     "Writing {:?}",
-        //     write_buf.iter().map(|&u| u as char).collect::<Vec<char>>()
-        // );
         self.port.write_all(&[b'{', panel, area, b't', b'h', b'}'])
     }
 
@@ -219,48 +200,39 @@ impl Finale {
         self.port.write_all(buf)
     }
 
-    pub fn receive(&mut self) -> Result<Option<usize>> {
-        match self.port.read(&mut self.buf[self.byte_count..]) {
-            Ok(cnt) => {
-                self.byte_count += cnt;
-            }
-            Err(ref e) if e.kind() == io::ErrorKind::TimedOut => return Ok(None),
-            Err(e) => {
-                self.byte_count = 0;
-                return Err(e);
-            }
-        }
-
-        let mut buf = &mut self.buf[..self.byte_count];
-        info!(
-            "Reading {:?}",
-            buf
-                .iter()
-                .map(|&u| u as char)
-                .collect::<Vec<char>>()
-        );
-
-        match buf.iter().position(|b| b == &b'(') {
-            Some(0) => {}
-            Some(i) => {
-                buf.rotate_left(i - 1);
-                self.byte_count -= i + 1;
-                buf = &mut self.buf[..self.byte_count];
-            }
-            None => {
-                self.byte_count = 0;
-            }
+    pub fn receive(&mut self) -> Result<()> {
+        let n = match self.port.read(&mut self.buf) {
+            Ok(n) => n,
+            Err(e) if e.kind() == io::ErrorKind::TimedOut => return Ok(()),
+            Err(e) => return Err(e),
         };
 
-        match buf.iter().rposition(|b| b == &b')') {
-            Some(i) => Ok(Some(i)),
-            None => Ok(None),
+        for &b in &self.buf[..n] {
+            match self.parser.push(b) {
+                ParsedPacket::Input(packet) => {
+                    if let Some(p1) = &self.dx_p1 {
+                        p1.send(&convert_to_dx_buf(&packet[0..4]))?;
+                    }
+
+                    if let Some(p2) = &self.dx_p2 {
+                        p2.send(&convert_to_dx_buf(&self.buf[6..10]))?;
+                    }
+                }
+                ParsedPacket::Data(packet) => {
+                    dbg!(packet);
+                }
+                ParsedPacket::Incompleted => {}
+            }
         }
+
+        Ok(())
     }
 
     // Sends HALT packet to touchscreen
     pub fn halt(&mut self) -> Result<()> {
-        self.port.write_all(HALT)
+        self.port.write_all(HALT)?;
+        // Discard input buffer so there is no data if touch was working before
+        self.port.discard_input_buffer()
     }
 
     // Sends STAT packet to touchscreen
@@ -276,7 +248,7 @@ impl Finale {
             .name("Finale Touch Thread".to_owned())
             .spawn(move || {
                 while !exit_sig.load(Ordering::Relaxed) {
-                    finale_touch.process()?;
+                    finale_touch.receive()?;
                 }
                 finale_touch.port.write_all(HALT)?;
 

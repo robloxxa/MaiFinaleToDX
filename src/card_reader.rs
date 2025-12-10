@@ -1,4 +1,5 @@
-use crate::config::Settings;
+use crate::config;
+use crate::config::reader::Reader;
 use crate::keyboard::Keyboard;
 use anyhow::{Context, Error, Result};
 use jvs_packets::jvs_modified::{ModifiedPacket, RequestPacket, ResponsePacket};
@@ -91,13 +92,6 @@ impl CardReader {
     }
 }
 
-// fn read_aime_request(reader: &mut dyn SerialPort, buf: &mut [u8]) -> io::Result<usize> {
-//     reader.read_u8()?;
-//     Ok(0)
-// }
-
-// fn write_aime_request()
-
 pub fn spawn_thread(
     mut reader: CardReader,
     exit_sig: Arc<AtomicBool>,
@@ -131,12 +125,12 @@ pub fn spawn_thread(
         })
 }
 
-pub fn setup(
-    cfg: &Settings,
+pub fn init(
+    cfg: &Reader,
     handles: &mut Vec<JoinHandle<io::Result<()>>>,
     exit_sig: Arc<AtomicBool>,
 ) -> Result<()> {
-    let file_path = cfg.reader_device_file.as_ref().map_or_else(
+    let file_path = cfg.device_file.as_ref().map_or_else(
         || {
             Err(io::Error::new(
                 io::ErrorKind::InvalidData,
@@ -146,7 +140,7 @@ pub fn setup(
         |p| Ok(p.to_owned()),
     )?;
 
-    let mut reader = CardReader::new(&cfg.reader_port, file_path)?;
+    let mut reader = CardReader::new(&cfg.port, file_path)?;
 
     reader.init(00)?;
 

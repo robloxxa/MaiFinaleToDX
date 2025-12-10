@@ -58,8 +58,10 @@ impl Deluxe {
                 num, e
             );
             e
-        })?;
+        })?; 
+        
         port.set_read_timeout(Duration::from_millis(0))?;
+        
         Ok(Self {
             num,
             port,
