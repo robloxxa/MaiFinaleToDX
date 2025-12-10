@@ -50,9 +50,9 @@ pub struct JVS {
 impl JVS {
     pub fn new(port_name: impl AsRef<str>, input: &Input) -> Result<Self> {
         let mut port = SerialPort::open(port_name.as_ref(), 115_200)?;
-        
+
         port.set_read_timeout(Duration::from_millis(500))?;
-        
+
         Ok(Self {
             writer: BufWriter::with_capacity(512, port.try_clone()?),
             reader: BufReader::with_capacity(512, port.try_clone()?),
@@ -216,9 +216,9 @@ pub fn init(
     running: Arc<AtomicBool>,
 ) -> Result<()> {
     let mut jvs = JVS::new(&settings.port, &settings.input)?;
-    
+
     jvs.init(0)?;
-    
+
     handles.push(
         thread::Builder::new()
             .name("Finale JVS Thread".to_string())

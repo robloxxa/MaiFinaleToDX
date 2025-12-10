@@ -19,7 +19,6 @@ pub mod reader;
 #[cfg(feature = "touch")]
 pub mod touch;
 
-
 #[derive(Parser, Deserialize, Serialize, Debug)]
 #[clap(author = "robloxxa", version, about, long_about = None)]
 /// Tool that allow playing Maimai DX on original Maimai Finale Cabinet
@@ -88,7 +87,7 @@ impl Config {
 
     pub fn load(path: impl AsRef<Path>) -> Result<Self, error::Error> {
         let toml_str = std::fs::read_to_string(path)?;
-        
+
         let config =
             toml::from_str::<Self>(&toml_str).context("failed to deserialize toml config")?;
 

@@ -33,7 +33,7 @@ impl FrameParser {
         }
     }
 
-    pub fn push(&mut self, b: u8) -> ParsedPacket {
+    pub fn push(&mut self, b: u8) -> ParsedPacket<'_> {
         match b {
             b'(' => {
                 self.in_frame = true;
@@ -80,23 +80,23 @@ impl FrameParser {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_frame_parser() {
         let mut parser = FrameParser::new();
-        
+
         let first_packet = "LABR";
         let second_packet = "ABCD@@ABCD@@";
         let packet = format!("ASD)({})({})", first_packet, second_packet);
-        
+
         for &b in packet.as_bytes() {
             match parser.push(b) {
                 ParsedPacket::Input(p) => {
                     assert_eq!(second_packet.as_bytes(), p)
-                },
+                }
                 ParsedPacket::Data(p) => {
                     assert_eq!(first_packet.as_bytes(), p)
-                },
+                }
                 ParsedPacket::Incompleted => {}
             }
         }

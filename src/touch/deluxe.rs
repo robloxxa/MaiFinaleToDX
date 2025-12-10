@@ -1,8 +1,6 @@
-use anyhow::{Context, Error};
 use serial2::SerialPort;
 
-use log::{debug, error, info};
-use std::io::Read;
+use log::error;
 use std::io::Result;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -58,10 +56,10 @@ impl Deluxe {
                 num, e
             );
             e
-        })?; 
-        
+        })?;
+
         port.set_read_timeout(Duration::from_millis(0))?;
-        
+
         Ok(Self {
             num,
             port,
