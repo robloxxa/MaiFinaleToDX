@@ -1,18 +1,14 @@
-log_level = "info"
+[touch]
+enabled = true
+finale_port = "COM23"
+dx_p1_port = "COM6"
+dx_p2_port = "COM8"
 
-[settings]
-disable_touch = false
-disable_jvs = false
-disable_reader = false
-disable_spice_api = false
-touch_re2_com = "COM23"
-touch_alls_p1_com = "COM6"
-touch_alls_p2_com = "COM8"
-jvs_re2_com = "COM24"
-reader_re2_com = "COM22"
-spice_port = "1337"
+[jvs]
+enabled = true
+port = "COM23"
 
-[input]
+[jvs.input]
 service = 51
 test = 84
 p1_btn1 = 87
@@ -31,3 +27,8 @@ p2_btn5 = 98
 p2_btn6 = 97
 p2_btn7 = 100
 p2_btn8 = 103
+
+[reader]
+enabled = false
+port = "COM24"
+device_file = "./device.txt"

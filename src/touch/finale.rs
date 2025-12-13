@@ -18,64 +18,7 @@ pub enum ParsedPacket<'a> {
     Incompleted,
 }
 
-pub struct FrameParser<const MAX_SIZE: usize = TOUCH_MAX_SIZE> {
-    inner: [u8; MAX_SIZE],
-    idx: usize,
-    in_frame: bool,
-}
 
-impl FrameParser {
-    pub fn new() -> Self {
-        Self {
-            inner: Default::default(),
-            idx: 0,
-            in_frame: false,
-        }
-    }
-
-    pub fn push(&mut self, b: u8) -> ParsedPacket<'_> {
-        match b {
-            b'(' => {
-                self.in_frame = true;
-                self.idx = 0;
-                ParsedPacket::Incompleted
-            }
-
-            b')' => {
-                if !self.in_frame {
-                    return ParsedPacket::Incompleted;
-                }
-
-                self.in_frame = false;
-
-                // валидные длины: 4 или 12
-                match self.idx {
-                    4 => ParsedPacket::Data(&self.inner[..self.idx]),
-                    12 => ParsedPacket::Input(&self.inner[..self.idx]),
-                    _ => ParsedPacket::Incompleted,
-                }
-            }
-
-            _ => {
-                if !self.in_frame {
-                    return ParsedPacket::Incompleted; // мусор вне фрейма
-                }
-
-                // пока собираем содержимое скобок
-                if self.idx < 12 {
-                    self.inner[self.idx] = b;
-                    self.idx += 1;
-                } else {
-                    // переполнение → сброс, ищем новый '('
-                    self.in_frame = false;
-                    self.idx = 0;
-                }
-
-                ParsedPacket::Incompleted
-            }
-        }
-    }
-}
 
 #[cfg(test)]
 mod tests {
@@ -177,12 +120,11 @@ impl Finale {
     }
 
     fn get_threshold(&mut self, panel: u8, area: u8) -> io::Result<()> {
-        self.port.write_all(&[b'{', panel, area, b't', b'h', b'}'])
+        self.send(&[b'{', panel, area, b't', b'h', b'}'])
     }
 
     fn set_threshold(&mut self, panel: u8, area: u8, threshold: u8) -> Result<()> {
-        self.port
-            .write_all(&[b'{', panel, area, b't', threshold, b'}'])
+        self.send(&[b'{', panel, area, b't', threshold, b'}'])
     }
 
     pub fn send(&self, buf: &[u8]) -> Result<()> {
@@ -203,7 +145,7 @@ impl Finale {
     pub fn receive(&mut self) -> Result<()> {
         let n = match self.port.read(&mut self.buf) {
             Ok(n) => n,
-            Err(e) if e.kind() == io::ErrorKind::TimedOut => return Ok(()),
+            Err(ref e) if e.kind() == io::ErrorKind::TimedOut => return Ok(()),
             Err(e) => return Err(e),
         };
 
@@ -215,7 +157,7 @@ impl Finale {
                     }
 
                     if let Some(p2) = &self.dx_p2 {
-                        p2.send(&convert_to_dx_buf(&self.buf[6..10]))?;
+                        p2.send(&convert_to_dx_buf(&packet[6..10]))?;
                     }
                 }
                 ParsedPacket::Data(packet) => {

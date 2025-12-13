@@ -104,7 +104,11 @@ impl JVS {
                         .set_write_timeout(Duration::from_secs(0))?;
                     return Ok(());
                 }
-                Err(e) if e.kind() == io::ErrorKind::TimedOut => {}
+                Err(e) if e.kind() == io::ErrorKind::TimedOut => {
+                    error!(
+                        "JVS initialization timed out"
+                    )
+                }
                 Err(e) => return Err(e.into()),
             }
         }
@@ -115,9 +119,10 @@ impl JVS {
 
     pub fn send_init(&mut self, board: u8) -> io::Result<()> {
         info!("JVS: Initializing");
-
         self.reset()?;
+        
         info!("JVS: Reset sent");
+        // Wait a little before sending the next command
         thread::sleep(Duration::from_millis(500));
 
         self.cmd(BROADCAST, &[Cmd::ASSIGN_ADDRESS, board])?;

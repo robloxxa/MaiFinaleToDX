@@ -19,7 +19,7 @@ impl Default for Reader {
         Self {
             enabled: false,
             port: "COM24".to_string(),
-            device_file: None,
+            device_file: Some("./device.txt".to_string()),
         }
     }
 }

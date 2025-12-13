@@ -71,7 +71,7 @@ impl Config {
             let config = Self::default();
             config.save(&cli.config_path)?;
 
-            Err(anyhow::anyhow!("First time creating config, exiting").into())
+            Err(anyhow::anyhow!("first time creating config, exiting").into())
         } else {
             Self::load(&cli.config_path)
         }

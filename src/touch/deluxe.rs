@@ -1,6 +1,6 @@
 use serial2::SerialPort;
 
-use log::error;
+use log::{error, warn};
 use std::io::Result;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -40,6 +40,69 @@ use std::time::Duration;
 //         }
 //     }
 // }
+
+enum ResponseFrame {
+    MasterRequest
+}
+
+pub struct FrameParser<const MAX_SIZE: usize = TOUCH_MAX_SIZE> {
+    inner: [u8; MAX_SIZE],
+    idx: usize,
+    in_frame: bool,
+}
+
+impl FrameParser {
+    pub fn new() -> Self {
+        Self {
+            inner: Default::default(),
+            idx: 0,
+            in_frame: false,
+        }
+    }
+
+    pub fn push(&mut self, b: u8) -> ParsedPacket<'_> {
+        match b {
+            b'(' => {
+                self.in_frame = true;
+                self.idx = 0;
+                ParsedPacket::Incompleted
+            }
+
+            b')' => {
+                if !self.in_frame {
+                    return ParsedPacket::Incompleted;
+                }
+
+                self.in_frame = false;
+
+                // валидные длины: 4 или 12
+                match self.idx {
+                    4 => ParsedPacket::Data(&self.inner[..self.idx]),
+                    12 => ParsedPacket::Input(&self.inner[..self.idx]),
+                    _ => ParsedPacket::Incompleted,
+                }
+            }
+
+            _ => {
+                if !self.in_frame {
+                    return ParsedPacket::Incompleted; // мусор вне фрейма
+                }
+
+                // пока собираем содержимое скобок
+                if self.idx < 12 {
+                    self.inner[self.idx] = b;
+                    self.idx += 1;
+                } else {
+                    // переполнение → сброс, ищем новый '('
+                    self.in_frame = false;
+                    self.idx = 0;
+                }
+
+                ParsedPacket::Incompleted
+            }
+        }
+    }
+}
 
 pub struct Deluxe {
     num: u8,
@@ -98,7 +161,14 @@ impl Deluxe {
     }
 
     pub(crate) fn send(&self, buf: &[u8]) -> Result<()> {
-        self.port.write_all(buf)
+        match self.port.write_all(buf) {
+            Ok(()) => Ok(()),
+            Err(ref err) if err.kind() == std::io::ErrorKind::TimedOut => {
+                warn!("Write to Deluxe P{} timed out. This is probably due to MaiMai being closed", self.num);
+                Ok(())
+            }
+            Err(err) => Err(err.into()),
+        }
     }
 
     pub fn try_clone(&self) -> Result<Self> {
