@@ -41,69 +41,6 @@ use std::time::Duration;
 //     }
 // }
 
-enum ResponseFrame {
-    MasterRequest
-}
-
-pub struct FrameParser<const MAX_SIZE: usize = TOUCH_MAX_SIZE> {
-    inner: [u8; MAX_SIZE],
-    idx: usize,
-    in_frame: bool,
-}
-
-impl FrameParser {
-    pub fn new() -> Self {
-        Self {
-            inner: Default::default(),
-            idx: 0,
-            in_frame: false,
-        }
-    }
-
-    pub fn push(&mut self, b: u8) -> ParsedPacket<'_> {
-        match b {
-            b'(' => {
-                self.in_frame = true;
-                self.idx = 0;
-                ParsedPacket::Incompleted
-            }
-
-            b')' => {
-                if !self.in_frame {
-                    return ParsedPacket::Incompleted;
-                }
-
-                self.in_frame = false;
-
-                // валидные длины: 4 или 12
-                match self.idx {
-                    4 => ParsedPacket::Data(&self.inner[..self.idx]),
-                    12 => ParsedPacket::Input(&self.inner[..self.idx]),
-                    _ => ParsedPacket::Incompleted,
-                }
-            }
-
-            _ => {
-                if !self.in_frame {
-                    return ParsedPacket::Incompleted; // мусор вне фрейма
-                }
-
-                // пока собираем содержимое скобок
-                if self.idx < 12 {
-                    self.inner[self.idx] = b;
-                    self.idx += 1;
-                } else {
-                    // переполнение → сброс, ищем новый '('
-                    self.in_frame = false;
-                    self.idx = 0;
-                }
-
-                ParsedPacket::Incompleted
-            }
-        }
-    }
-}
-
 pub struct Deluxe {
     num: u8,
     pub port: SerialPort,
@@ -122,6 +59,9 @@ impl Deluxe {
         })?;
 
         port.set_read_timeout(Duration::from_millis(0))?;
+        
+        port.discard_input_buffer()?;
+        port.discard_output_buffer()?;
 
         Ok(Self {
             num,
@@ -135,8 +75,16 @@ impl Deluxe {
         match self.port.read_exact(&mut read_buffer) {
             Ok(_) => {
                 match read_buffer[3] {
-                    b'E' => self.active.store(false, Ordering::Relaxed),
+                    b'E' => {
+                        self.port.discard_input_buffer()?;
+                        self.port.discard_output_buffer()?;
+
+                        self.active.store(false, Ordering::Relaxed)
+                    }
                     b'L' => {
+                        self.port.discard_input_buffer()?;
+                        self.port.discard_output_buffer()?;
+                        
                         self.active.store(false, Ordering::Relaxed);
                         self.port.set_read_timeout(Duration::from_millis(0))?;
                     }
@@ -192,5 +140,9 @@ impl Deluxe {
 
                 Ok(())
             })
+    }
+    
+    pub fn is_active(&self) -> bool {
+        self.active.load(Ordering::Relaxed)
     }
 }

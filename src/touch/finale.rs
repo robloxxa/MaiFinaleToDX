@@ -1,3 +1,4 @@
+use crate::touch::packet::finale_slave::*;
 use crate::touch::{HALT, STAT};
 use crate::{helper_funcs::bit_read, touch::deluxe::Deluxe};
 use log::{debug, error, info};
@@ -12,42 +13,8 @@ use std::{io, thread};
 pub const TOUCH_MAX_SIZE: usize = 14;
 pub const TOUCH_SETTINGS_MAX_SIZE: usize = 6;
 
-pub enum ParsedPacket<'a> {
-    Input(&'a [u8]),
-    Data(&'a [u8]),
-    Incompleted,
-}
-
-
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_frame_parser() {
-        let mut parser = FrameParser::new();
-
-        let first_packet = "LABR";
-        let second_packet = "ABCD@@ABCD@@";
-        let packet = format!("ASD)({})({})", first_packet, second_packet);
-
-        for &b in packet.as_bytes() {
-            match parser.push(b) {
-                ParsedPacket::Input(p) => {
-                    assert_eq!(second_packet.as_bytes(), p)
-                }
-                ParsedPacket::Data(p) => {
-                    assert_eq!(first_packet.as_bytes(), p)
-                }
-                ParsedPacket::Incompleted => {}
-            }
-        }
-    }
-}
-
 pub struct Finale {
-    parser: FrameParser,
+    parser: Parser,
     buf: [u8; 14],
 
     pub port: SerialPort,
@@ -67,7 +34,7 @@ impl Finale {
 
         Ok(Self {
             port,
-            parser: FrameParser::new(),
+            parser: Parser::new(),
             buf: [0u8; 14],
             dx_p1,
             dx_p2,
@@ -106,12 +73,12 @@ impl Finale {
         info!("Sending HALT packet");
         self.halt()?;
 
-        for panel in [b'L', b'R'] {
-            info!("Getting threshold from {} panel areas", panel as char);
-            for area in 65..82 {
-                self.get_threshold(panel, area)?;
-            }
-        }
+        // for panel in [b'L', b'R'] {
+        //     info!("Getting threshold from {} panel areas", panel as char);
+        //     for area in 65..82 {
+        //         self.get_threshold(panel, area)?;
+        //     }
+        // }
 
         info!("Sending STAT packet");
         self.stat()?;
@@ -151,35 +118,68 @@ impl Finale {
 
         for &b in &self.buf[..n] {
             match self.parser.push(b) {
-                ParsedPacket::Input(packet) => {
-                    if let Some(p1) = &self.dx_p1 {
-                        p1.send(&convert_to_dx_buf(&packet[0..4]))?;
+                Packet::Input { p1, p2 } => {
+                    if let Some(dx_p1) = &self.dx_p1 {
+                        if dx_p1.is_active() {
+                            dx_p1.send(&convert_to_dx_buf(p1))?;
+                        }
                     }
 
-                    if let Some(p2) = &self.dx_p2 {
-                        p2.send(&convert_to_dx_buf(&packet[6..10]))?;
+                    if let Some(dx_p2) = &self.dx_p2 {
+                        if dx_p2.is_active() {
+                            dx_p2.send(&convert_to_dx_buf(p2))?;
+                        }
                     }
                 }
-                ParsedPacket::Data(packet) => {
+                Packet::Data(packet) => {
                     dbg!(packet);
                 }
-                ParsedPacket::Incompleted => {}
+                Packet::Incompleted => {}
             }
         }
 
         Ok(())
     }
 
+    pub fn recieve_once(&mut self) -> Result<Packet> {
+        let mut attempt = 0;
+        while attempt < 10 {
+            let n = match self.port.read(&mut self.buf) {
+                Ok(n) => n,
+                Err(ref e) if e.kind() == io::ErrorKind::TimedOut => {
+                    attempt += 1;
+                    continue;
+                }
+                Err(e) => return Err(e),
+            };
+
+            for &b in &self.buf[..n] {
+                match self.parser.push(b) {
+                    Packet::Incompleted => {
+                        attempt += 1;
+                        continue;
+                    }
+                    p => {
+                        
+                        return Ok(p)
+                    },
+                }
+            }
+        }
+        
+        Err(anyhow!("Could not read packet"))
+    }
+
     // Sends HALT packet to touchscreen
     pub fn halt(&mut self) -> Result<()> {
-        self.port.write_all(HALT)?;
+        self.send(HALT)?;
         // Discard input buffer so there is no data if touch was working before
         self.port.discard_input_buffer()
     }
 
     // Sends STAT packet to touchscreen
     pub fn stat(&mut self) -> Result<()> {
-        self.port.write_all(STAT)
+        self.send(STAT)
     }
 
     pub fn spawn_thread(

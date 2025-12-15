@@ -1,12 +1,12 @@
-
 const MAX_PACKET_SIZE: usize = 12;
+const ALIGN_BYTES_SIZE: usize = 2;
 const MAX_DATA_PACKET_SIZE: usize = 4;
 
+const P1_INPUT_RANGE: std::ops::Range<usize> = 0..4;
+const P2_INPUT_RANGE: std::ops::Range<usize> = 6..10;
+
 pub enum Packet<'a> {
-    Input {
-        p1: &'a [u8],
-        p2: &'a [u8]
-    },
+    Input { p1: &'a [u8], p2: &'a [u8] },
     Data(&'a [u8]),
     Incompleted,
 }
@@ -43,17 +43,20 @@ impl Parser {
 
                 match self.idx {
                     MAX_DATA_PACKET_SIZE => Packet::Data(&self.inner[..self.idx]),
-                    MAX_PACKET_SIZE => Packet::Input(&self.inner[..self.idx].),
-                    _ => ParsedPacket::Incompleted,
+                    MAX_PACKET_SIZE => Packet::Input {
+                        p1: &self.inner[P1_INPUT_RANGE],
+                        p2: &self.inner[P2_INPUT_RANGE],
+                    },
+                    _ => Packet::Incompleted,
                 }
             }
 
             _ => {
                 if !self.in_frame {
-                    return ParsedPacket::Incompleted; 
+                    return Packet::Incompleted;
                 }
 
-                if self.idx < MAX_INPUT_PACKET_SIZE {
+                if self.idx < MAX_PACKET_SIZE {
                     self.inner[self.idx] = b;
                     self.idx += 1;
                 } else {
@@ -61,7 +64,7 @@ impl Parser {
                     self.idx = 0;
                 }
 
-                ParsedPacket::Incompleted
+                Packet::Incompleted
             }
         }
     }

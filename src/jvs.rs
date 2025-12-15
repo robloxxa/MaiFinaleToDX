@@ -52,6 +52,8 @@ impl JVS {
         let mut port = SerialPort::open(port_name.as_ref(), 115_200)?;
 
         port.set_read_timeout(Duration::from_millis(500))?;
+        port.discard_input_buffer()?;
+        port.discard_output_buffer()?;
 
         Ok(Self {
             writer: BufWriter::with_capacity(512, port.try_clone()?),
@@ -87,10 +89,10 @@ impl JVS {
 
         self.reader
             .get_mut()
-            .set_read_timeout(Duration::from_secs(2))?;
+            .set_read_timeout(Duration::from_secs(5))?;
         self.reader
             .get_mut()
-            .set_write_timeout(Duration::from_secs(2))?;
+            .set_write_timeout(Duration::from_secs(5))?;
 
         for c in 0..RETRY_COUNT {
             info!("Trying to initialize JVS. Attempt {}", c + 1);
@@ -123,8 +125,9 @@ impl JVS {
         
         info!("JVS: Reset sent");
         // Wait a little before sending the next command
-        thread::sleep(Duration::from_millis(500));
+        thread::sleep(Duration::from_millis(1000));
 
+        info!("Sending ASSIGN ADDRESS");
         self.cmd(BROADCAST, &[Cmd::ASSIGN_ADDRESS, board])?;
         info!("JVS: Assigned address {}", board,);
 

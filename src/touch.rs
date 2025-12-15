@@ -16,7 +16,7 @@ use std::thread::JoinHandle;
 
 mod deluxe;
 mod finale;
-mod packet;
+pub (crate) mod packet;
 
 pub const RSET: &[u8] = "{RSET}".as_bytes();
 pub const HALT: &[u8] = "{HALT}".as_bytes();
