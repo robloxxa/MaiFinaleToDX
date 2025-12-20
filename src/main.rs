@@ -6,7 +6,6 @@ use log::{error, info};
 
 use crate::helper_funcs::log_error;
 use anyhow::Context;
-use std::io;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread::JoinHandle;
@@ -70,10 +69,7 @@ fn setup() -> Result<()> {
     Ok(())
 }
 
-fn init_handles(
-    cfg: &Config,
-    exit_sig: &Arc<AtomicBool>,
-) -> Result<Vec<JoinHandle<io::Result<()>>>> {
+fn init_handles(cfg: &Config, exit_sig: &Arc<AtomicBool>) -> Result<Vec<JoinHandle<Result<()>>>> {
     let mut handles = Vec::with_capacity(4);
 
     #[cfg(feature = "touch")]

@@ -1,21 +1,29 @@
+use crate::config::touch;
+use crate::error::Result;
 use crate::touch::packet::finale_slave::*;
 use crate::touch::{HALT, STAT};
 use crate::{helper_funcs::bit_read, touch::deluxe::Deluxe};
+use anyhow::anyhow;
 use log::{debug, error, info};
 use serial2::SerialPort;
-use std::io::Result;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::time::Duration;
 use std::{io, thread};
 
-pub const TOUCH_MAX_SIZE: usize = 14;
-pub const TOUCH_SETTINGS_MAX_SIZE: usize = 6;
+type ThresholdInfo = [u8; 17];
+
+impl From<touch::Threshold> for ThresholdInfo {
+    fn from(t: touch::Threshold) -> Self {
+        [t.a1, t.b1, t.a2, t.b2, t.a3, t.b3, t.a4, t.b4, t.a5, t.b5, t.a6, t.b6, t.a7, t.b7, t.a8, t.b8, t.c]
+    }
+}
 
 pub struct Finale {
     parser: Parser,
     buf: [u8; 14],
+    threshold_info: ThresholdInfo,
 
     pub port: SerialPort,
     pub dx_p1: Option<Deluxe>,
@@ -27,15 +35,18 @@ impl Finale {
         port_name: impl Into<String>,
         dx_p1: Option<Deluxe>,
         dx_p2: Option<Deluxe>,
+        threshold: impl Into<ThresholdInfo>,
     ) -> Result<Self> {
         let port_name = port_name.into();
         let mut port = SerialPort::open(&port_name, 9600)?;
         port.set_read_timeout(Duration::from_millis(0))?;
+        port.discard_buffers()?;
 
         Ok(Self {
             port,
             parser: Parser::new(),
             buf: [0u8; 14],
+            threshold_info: threshold.into(),
             dx_p1,
             dx_p2,
         })
@@ -55,12 +66,11 @@ impl Finale {
                     self.port.set_write_timeout(Duration::from_millis(0))?;
                     return Ok(());
                 }
-                Err(e) if e.kind() == io::ErrorKind::TimedOut => {
+                Err(crate::error::Error::Io(ref e)) if e.kind() == io::ErrorKind::TimedOut => {
                     error!("Init timeout")
                 }
                 Err(e) => {
                     error!("Init failed. Error: {}", e);
-                    return Err(e.into());
                 }
             }
         }
@@ -69,16 +79,13 @@ impl Finale {
         Err(io::Error::new(io::ErrorKind::TimedOut, "Finale touchscreen timeout").into())
     }
 
-    fn send_init(&mut self) -> io::Result<()> {
+    fn send_init(&mut self) -> Result<()> {
         info!("Sending HALT packet");
         self.halt()?;
+        
+    
 
-        // for panel in [b'L', b'R'] {
-        //     info!("Getting threshold from {} panel areas", panel as char);
-        //     for area in 65..82 {
-        //         self.get_threshold(panel, area)?;
-        //     }
-        // }
+        self.init_threshold()?;
 
         info!("Sending STAT packet");
         self.stat()?;
@@ -86,15 +93,36 @@ impl Finale {
         Ok(())
     }
 
+    fn init_threshold(&mut self) -> Result<()>{
+        for panel in [b'L', b'R'] {
+            info!("Getting threshold from {} panel area", panel as char);
+            for area in 0x41..=0x51 {
+                match self.get_threshold(panel, area) {
+                    Ok(_) => (),
+                    Err(e) => {
+                        error!("Failed to get threshold from panel {:?} area {:?}: {}", panel, area, e);
+                        return Err(e.into());
+                    }
+                }
+                
+                if let Packet::Data(packet) = self.recieve_once()? {
+                    self.set_threshold(panel, area, packet[3])?;
+                }
+            }
+        }
+        
+        Ok(())
+    }
+    
     fn get_threshold(&mut self, panel: u8, area: u8) -> io::Result<()> {
         self.send(&[b'{', panel, area, b't', b'h', b'}'])
     }
 
-    fn set_threshold(&mut self, panel: u8, area: u8, threshold: u8) -> Result<()> {
+    fn set_threshold(&self, panel: u8, area: u8, threshold: u8) -> io::Result<()> {
         self.send(&[b'{', panel, area, b't', threshold, b'}'])
     }
 
-    pub fn send(&self, buf: &[u8]) -> Result<()> {
+    pub fn send(&self, buf: &[u8]) -> io::Result<()> {
         debug!(
             "Finale Touch: Sending {}",
             buf.iter()
@@ -113,12 +141,14 @@ impl Finale {
         let n = match self.port.read(&mut self.buf) {
             Ok(n) => n,
             Err(ref e) if e.kind() == io::ErrorKind::TimedOut => return Ok(()),
-            Err(e) => return Err(e),
+            Err(e) => return Err(e.into()),
         };
 
-        for &b in &self.buf[..n] {
+        let buf = &self.buf[..n];
+
+        for &b in buf {
             match self.parser.push(b) {
-                Packet::Input { p1, p2 } => {
+                Some(Packet::Input { p1, p2 }) => {
                     if let Some(dx_p1) = &self.dx_p1 {
                         if dx_p1.is_active() {
                             dx_p1.send(&convert_to_dx_buf(p1))?;
@@ -131,10 +161,10 @@ impl Finale {
                         }
                     }
                 }
-                Packet::Data(packet) => {
-                    dbg!(packet);
+                Some(Packet::Data(packet)) => {
+                    self.set_threshold(packet[0], packet[1], packet[3])?;
                 }
-                Packet::Incompleted => {}
+                None => {}
             }
         }
 
@@ -142,43 +172,45 @@ impl Finale {
     }
 
     pub fn recieve_once(&mut self) -> Result<Packet> {
+        let mut buf = [0u8; 1];
         let mut attempt = 0;
+
         while attempt < 10 {
-            let n = match self.port.read(&mut self.buf) {
-                Ok(n) => n,
-                Err(ref e) if e.kind() == io::ErrorKind::TimedOut => {
+            match self.port.read_exact(&mut buf) {
+                Ok(_) => {}
+                Err(e) if e.kind() == io::ErrorKind::TimedOut => {
                     attempt += 1;
                     continue;
                 }
-                Err(e) => return Err(e),
+                Err(e) => return Err(e.into()),
             };
 
-            for &b in &self.buf[..n] {
-                match self.parser.push(b) {
-                    Packet::Incompleted => {
-                        attempt += 1;
-                        continue;
-                    }
-                    p => {
-                        
-                        return Ok(p)
-                    },
+            let packet = self.parser.push(buf[0]);
+
+            match packet {
+                None => {
+                    attempt += 1;
+                    continue;
+                }
+                Some(p) => {
+                    debug!("Received packet: {:?}", p);
+                    return Ok(p);
                 }
             }
         }
-        
-        Err(anyhow!("Could not read packet"))
+
+        Err(anyhow!("Could not read packet after 10 attempts").into())
     }
 
     // Sends HALT packet to touchscreen
-    pub fn halt(&mut self) -> Result<()> {
+    pub fn halt(&mut self) -> io::Result<()> {
         self.send(HALT)?;
         // Discard input buffer so there is no data if touch was working before
-        self.port.discard_input_buffer()
+        self.port.discard_buffers()
     }
 
     // Sends STAT packet to touchscreen
-    pub fn stat(&mut self) -> Result<()> {
+    pub fn stat(&mut self) -> io::Result<()> {
         self.send(STAT)
     }
 
@@ -186,7 +218,7 @@ impl Finale {
         mut finale_touch: Finale,
         exit_sig: Arc<AtomicBool>,
     ) -> Result<JoinHandle<Result<()>>> {
-        thread::Builder::new()
+        let thread = thread::Builder::new()
             .name("Finale Touch Thread".to_owned())
             .spawn(move || {
                 while !exit_sig.load(Ordering::Relaxed) {
@@ -195,7 +227,8 @@ impl Finale {
                 finale_touch.port.write_all(HALT)?;
 
                 Ok(())
-            })
+            })?;
+        Ok(thread)
     }
 }
 
@@ -207,7 +240,7 @@ impl Drop for Finale {
     }
 }
 
-fn convert_to_dx_buf(buf: &[u8]) -> [u8; 9] {
+fn convert_to_dx_buf(buf: [u8; 4]) -> [u8; 9] {
     let mut write_buffer = DEFAULT_DELUXE_WRITE_BUFFER;
     for (i, &bit) in buf.iter().enumerate() {
         for pos in 0..5usize {

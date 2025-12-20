@@ -1,14 +1,13 @@
 const MAX_PACKET_SIZE: usize = 12;
-const ALIGN_BYTES_SIZE: usize = 2;
 const MAX_DATA_PACKET_SIZE: usize = 4;
 
 const P1_INPUT_RANGE: std::ops::Range<usize> = 0..4;
 const P2_INPUT_RANGE: std::ops::Range<usize> = 6..10;
 
-pub enum Packet<'a> {
-    Input { p1: &'a [u8], p2: &'a [u8] },
-    Data(&'a [u8]),
-    Incompleted,
+#[derive(Debug)]
+pub enum Packet {
+    Input { p1: [u8; 4], p2: [u8; 4] },
+    Data([u8; 4]),
 }
 
 pub struct Parser {
@@ -26,34 +25,46 @@ impl Parser {
         }
     }
 
-    pub fn push(&mut self, b: u8) -> Packet<'_> {
+    #[inline]
+    pub fn push(&mut self, b: u8) -> Option<Packet> {
         match b {
             b'(' => {
                 self.in_frame = true;
                 self.idx = 0;
-                Packet::Incompleted
+                None
             }
 
             b')' => {
                 if !self.in_frame {
-                    return Packet::Incompleted;
+                    return None;
                 }
 
                 self.in_frame = false;
 
                 match self.idx {
-                    MAX_DATA_PACKET_SIZE => Packet::Data(&self.inner[..self.idx]),
-                    MAX_PACKET_SIZE => Packet::Input {
-                        p1: &self.inner[P1_INPUT_RANGE],
-                        p2: &self.inner[P2_INPUT_RANGE],
-                    },
-                    _ => Packet::Incompleted,
+                    MAX_DATA_PACKET_SIZE => {
+                        let mut data = [0u8; MAX_DATA_PACKET_SIZE];
+
+                        data.copy_from_slice(&self.inner[..self.idx]);
+
+                        Some(Packet::Data(data))
+                    }
+                    MAX_PACKET_SIZE => {
+                        let mut p1 = [0u8; MAX_DATA_PACKET_SIZE];
+                        let mut p2 = [0u8; MAX_DATA_PACKET_SIZE];
+
+                        p1.copy_from_slice(&self.inner[P1_INPUT_RANGE]);
+                        p2.copy_from_slice(&self.inner[P2_INPUT_RANGE]);
+
+                        Some(Packet::Input { p1: p1, p2: p2 })
+                    }
+                    _ => None,
                 }
             }
 
             _ => {
                 if !self.in_frame {
-                    return Packet::Incompleted;
+                    return None;
                 }
 
                 if self.idx < MAX_PACKET_SIZE {
@@ -64,7 +75,7 @@ impl Parser {
                     self.idx = 0;
                 }
 
-                Packet::Incompleted
+                None
             }
         }
     }

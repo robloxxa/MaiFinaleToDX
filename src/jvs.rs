@@ -1,21 +1,20 @@
-use std::io::{BufReader, BufWriter, Result};
+use std::io::{BufReader, BufWriter, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use std::{io, thread};
-
 use std::thread::JoinHandle;
 
 use jvs_packets::jvs::{RequestPacket, ResponsePacket};
 use jvs_packets::{Packet, ReadPacket, WritePacket};
 use log::{error, info};
 use serial2::SerialPort;
-use winapi::ctypes::c_int;
 
 use crate::config;
 use crate::config::Input;
 use crate::helper_funcs::bit_read;
 use crate::keyboard::Keyboard;
+use crate::error::Result;
 
 #[non_exhaustive]
 pub struct Cmd;
@@ -29,14 +28,12 @@ impl Cmd {
     pub const JVS_VERSION: u8 = 0x12;
     pub const COMMS_VERSION: u8 = 0x13;
     pub const CAPABILITIES: u8 = 0x14;
-    pub const CONVEY_ID: u8 = 0x15;
+    // pub const CONVEY_ID: u8 = 0x15;
     pub const READ_DIGITAL: u8 = 0x20;
 }
 
-const UNUSED_MAPPING: c_int = -1;
+// const UNUSED_MAPPING: c_int = -1;
 static BROADCAST: u8 = 0xFF;
-
-// type InputMapping = [[c_int; 8]; 4];
 
 pub struct JVS {
     pub writer: BufWriter<SerialPort>,
@@ -49,11 +46,9 @@ pub struct JVS {
 
 impl JVS {
     pub fn new(port_name: impl AsRef<str>, input: &Input) -> Result<Self> {
-        let mut port = SerialPort::open(port_name.as_ref(), 115_200)?;
+        let port = SerialPort::open(port_name.as_ref(), 115_200)?;
 
-        port.set_read_timeout(Duration::from_millis(500))?;
-        port.discard_input_buffer()?;
-        port.discard_output_buffer()?;
+        port.discard_buffers()?;
 
         Ok(Self {
             writer: BufWriter::with_capacity(512, port.try_clone()?),
@@ -69,6 +64,9 @@ impl JVS {
     fn cmd(&mut self, dest: u8, data: &[u8]) -> io::Result<()> {
         self.writer
             .write_packet(self.req_packet.set_dest(dest).set_data(data))?;
+        
+        self.writer.flush()?;
+        
         self.reader.read_packet(&mut self.res_packet)?;
         Ok(())
     }
@@ -77,10 +75,12 @@ impl JVS {
         self.req_packet
             .set_dest(BROADCAST)
             .set_data(&[Cmd::RESET, Cmd::RESET_ARGUMENT]);
-
+        
         self.writer.write_packet(&self.req_packet)?;
         self.writer.write_packet(&self.req_packet)?;
 
+        self.writer.flush()?;
+        
         Ok(())
     }
 
@@ -90,7 +90,7 @@ impl JVS {
         self.reader
             .get_mut()
             .set_read_timeout(Duration::from_secs(5))?;
-        self.reader
+        self.writer
             .get_mut()
             .set_write_timeout(Duration::from_secs(5))?;
 
@@ -101,15 +101,13 @@ impl JVS {
                     self.reader
                         .get_mut()
                         .set_read_timeout(Duration::from_secs(0))?;
-                    self.reader
+                    self.writer
                         .get_mut()
                         .set_write_timeout(Duration::from_secs(0))?;
                     return Ok(());
                 }
                 Err(e) if e.kind() == io::ErrorKind::TimedOut => {
-                    error!(
-                        "JVS initialization timed out"
-                    )
+                    error!("JVS initialization timed out")
                 }
                 Err(e) => return Err(e.into()),
             }
@@ -122,12 +120,11 @@ impl JVS {
     pub fn send_init(&mut self, board: u8) -> io::Result<()> {
         info!("JVS: Initializing");
         self.reset()?;
-        
+
         info!("JVS: Reset sent");
         // Wait a little before sending the next command
-        thread::sleep(Duration::from_millis(1000));
+        thread::sleep(Duration::from_millis(500));
 
-        info!("Sending ASSIGN ADDRESS");
         self.cmd(BROADCAST, &[Cmd::ASSIGN_ADDRESS, board])?;
         info!("JVS: Assigned address {}", board,);
 
@@ -225,7 +222,7 @@ pub fn init(
 ) -> Result<()> {
     let mut jvs = JVS::new(&settings.port, &settings.input)?;
 
-    jvs.init(0)?;
+    jvs.init(1)?;
 
     handles.push(
         thread::Builder::new()

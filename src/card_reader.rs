@@ -1,6 +1,7 @@
 use crate::config::reader::Reader;
+use crate::error::Result;
 use crate::keyboard::Keyboard;
-use anyhow::Result;
+use anyhow::Context;
 use jvs_packets::jvs_modified::{ModifiedPacket, RequestPacket, ResponsePacket};
 use jvs_packets::{Packet, ReadPacket, WritePacket};
 use log::info;
@@ -14,6 +15,7 @@ use std::thread::JoinHandle;
 use std::time::Duration;
 use std::{io, thread};
 use winapi::um::winuser::VK_RETURN;
+
 // #[derive(Debug)]
 // #[repr(u8)]
 // enum Command {
@@ -94,10 +96,10 @@ impl CardReader {
 pub fn spawn_thread(
     mut reader: CardReader,
     exit_sig: Arc<AtomicBool>,
-) -> io::Result<JoinHandle<io::Result<()>>> {
-    thread::Builder::new()
+) -> Result<JoinHandle<Result<()>>> {
+    let thread = thread::Builder::new()
         .name("Card Reader Thread".to_string())
-        .spawn(move || -> io::Result<()> {
+        .spawn(move || -> Result<()> {
             let mut kb = Keyboard::new();
             reader.cmd(00, Cmd::RADIO_ON, &[0x01, 0x03])?;
             while !exit_sig.load(Ordering::Relaxed) {
@@ -116,17 +118,21 @@ pub fn spawn_thread(
                         }
                     }
                     Err(ref e) if e.kind() == io::ErrorKind::TimedOut => {}
-                    Err(e) => return Err(e),
+                    Err(e) => return Err(e.into()),
                 }
                 thread::sleep(Duration::from_millis(250));
             }
+
             Ok(())
         })
+        .with_context(|| format!("Card Reader thread failed to spawn"))?;
+
+    Ok(thread)
 }
 
 pub fn init(
     cfg: &Reader,
-    handles: &mut Vec<JoinHandle<io::Result<()>>>,
+    handles: &mut Vec<JoinHandle<Result<()>>>,
     exit_sig: Arc<AtomicBool>,
 ) -> Result<()> {
     let file_path = cfg.device_file.as_ref().map_or_else(

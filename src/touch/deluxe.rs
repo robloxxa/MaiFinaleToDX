@@ -1,7 +1,8 @@
+use anyhow::Context;
 use serial2::SerialPort;
 
+use crate::error::Result;
 use log::{error, warn};
-use std::io::Result;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread;
@@ -59,7 +60,7 @@ impl Deluxe {
         })?;
 
         port.set_read_timeout(Duration::from_millis(0))?;
-        
+
         port.discard_input_buffer()?;
         port.discard_output_buffer()?;
 
@@ -84,7 +85,7 @@ impl Deluxe {
                     b'L' => {
                         self.port.discard_input_buffer()?;
                         self.port.discard_output_buffer()?;
-                        
+
                         self.active.store(false, Ordering::Relaxed);
                         self.port.set_read_timeout(Duration::from_millis(0))?;
                     }
@@ -112,7 +113,10 @@ impl Deluxe {
         match self.port.write_all(buf) {
             Ok(()) => Ok(()),
             Err(ref err) if err.kind() == std::io::ErrorKind::TimedOut => {
-                warn!("Write to Deluxe P{} timed out. This is probably due to MaiMai being closed", self.num);
+                warn!(
+                    "Write to Deluxe P{} timed out. This is probably due to MaiMai being closed",
+                    self.num
+                );
                 Ok(())
             }
             Err(err) => Err(err.into()),
@@ -131,8 +135,10 @@ impl Deluxe {
         mut deluxe_touch: Deluxe,
         exit_sig: Arc<AtomicBool>,
     ) -> Result<JoinHandle<Result<()>>> {
-        thread::Builder::new()
-            .name(format!("Deluxe P{} Touch Thread", deluxe_touch.num))
+        let num = deluxe_touch.num;
+
+        let thread = thread::Builder::new()
+            .name(format!("Deluxe P{} Touch Thread", num))
             .spawn(move || {
                 while !exit_sig.load(Ordering::Relaxed) {
                     deluxe_touch.process()?;
@@ -140,8 +146,11 @@ impl Deluxe {
 
                 Ok(())
             })
+            .with_context(|| format!("Spawning Deluxe P{} Touch Thread failed", num))?;
+
+        Ok(thread)
     }
-    
+
     pub fn is_active(&self) -> bool {
         self.active.load(Ordering::Relaxed)
     }

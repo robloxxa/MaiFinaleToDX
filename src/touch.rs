@@ -6,19 +6,19 @@
 //! So if you press, for example, B1 area in Maimai DX, it will also press E1 and E2 (which is close to B1)
 
 use crate::config;
+use crate::error::Result;
 use crate::touch::deluxe::*;
 use crate::touch::finale::*;
 use log::info;
-use std::io::Result;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::thread::JoinHandle;
 
 mod deluxe;
 mod finale;
-pub (crate) mod packet;
+pub(crate) mod packet;
 
-pub const RSET: &[u8] = "{RSET}".as_bytes();
+// pub const RSET: &[u8] = "{RSET}".as_bytes();
 pub const HALT: &[u8] = "{HALT}".as_bytes();
 pub const STAT: &[u8] = "{STAT}".as_bytes();
 
