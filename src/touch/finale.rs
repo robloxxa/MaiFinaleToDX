@@ -14,8 +14,8 @@ use std::{io, thread};
 
 type ThresholdInfo = [u8; 17];
 
-impl From<touch::Threshold> for ThresholdInfo {
-    fn from(t: touch::Threshold) -> Self {
+impl From<&touch::Threshold> for ThresholdInfo {
+    fn from(t: &touch::Threshold) -> Self {
         [t.a1, t.b1, t.a2, t.b2, t.a3, t.b3, t.a4, t.b4, t.a5, t.b5, t.a6, t.b6, t.a7, t.b7, t.a8, t.b8, t.c]
     }
 }
@@ -23,7 +23,8 @@ impl From<touch::Threshold> for ThresholdInfo {
 pub struct Finale {
     parser: Parser,
     buf: [u8; 14],
-    threshold_info: ThresholdInfo,
+    p1_threshold: ThresholdInfo,
+    p2_threshold: ThresholdInfo,
 
     pub port: SerialPort,
     pub dx_p1: Option<Deluxe>,
@@ -33,9 +34,10 @@ pub struct Finale {
 impl Finale {
     pub fn new(
         port_name: impl Into<String>,
+        p1_threshold: impl Into<ThresholdInfo>,
+        p2_threshold: impl Into<ThresholdInfo>,
         dx_p1: Option<Deluxe>,
         dx_p2: Option<Deluxe>,
-        threshold: impl Into<ThresholdInfo>,
     ) -> Result<Self> {
         let port_name = port_name.into();
         let mut port = SerialPort::open(&port_name, 9600)?;
@@ -46,7 +48,8 @@ impl Finale {
             port,
             parser: Parser::new(),
             buf: [0u8; 14],
-            threshold_info: threshold.into(),
+            p1_threshold: p1_threshold.into(),
+            p2_threshold: p2_threshold.into(),
             dx_p1,
             dx_p2,
         })
@@ -83,8 +86,6 @@ impl Finale {
         info!("Sending HALT packet");
         self.halt()?;
         
-    
-
         self.init_threshold()?;
 
         info!("Sending STAT packet");
@@ -105,8 +106,12 @@ impl Finale {
                     }
                 }
                 
-                if let Packet::Data(packet) = self.recieve_once()? {
-                    self.set_threshold(panel, area, packet[3])?;
+                if let Packet::Data(_) = self.recieve_once()? {
+                    if panel == b'L' {
+                        self.set_threshold(panel, area, self.p1_threshold[area as usize - 0x41])?;
+                    } else {
+                        self.set_threshold(panel, area, self.p2_threshold[area as usize - 0x41])?;
+                    }
                 }
             }
         }

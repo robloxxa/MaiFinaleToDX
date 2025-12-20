@@ -34,6 +34,8 @@ pub fn setup(
 
     let mut finale = Finale::new(
         &config.finale_port,
+        &config.p1_threshold,
+        &config.p2_threshold,
         dx_p1.as_ref().and_then(|x| x.try_clone().ok()),
         dx_p2.as_ref().and_then(|x| x.try_clone().ok()),
     )?;
