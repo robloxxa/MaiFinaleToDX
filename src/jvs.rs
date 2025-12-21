@@ -1,9 +1,9 @@
 use std::io::{BufReader, BufWriter, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::thread::JoinHandle;
 use std::time::Duration;
 use std::{io, thread};
-use std::thread::JoinHandle;
 
 use jvs_packets::jvs::{RequestPacket, ResponsePacket};
 use jvs_packets::{Packet, ReadPacket, WritePacket};
@@ -12,9 +12,9 @@ use serial2::SerialPort;
 
 use crate::config;
 use crate::config::Input;
+use crate::error::Result;
 use crate::helper_funcs::bit_read;
 use crate::keyboard::Keyboard;
-use crate::error::Result;
 
 #[non_exhaustive]
 pub struct Cmd;
@@ -64,9 +64,9 @@ impl JVS {
     fn cmd(&mut self, dest: u8, data: &[u8]) -> io::Result<()> {
         self.writer
             .write_packet(self.req_packet.set_dest(dest).set_data(data))?;
-        
+
         self.writer.flush()?;
-        
+
         self.reader.read_packet(&mut self.res_packet)?;
         Ok(())
     }
@@ -75,12 +75,12 @@ impl JVS {
         self.req_packet
             .set_dest(BROADCAST)
             .set_data(&[Cmd::RESET, Cmd::RESET_ARGUMENT]);
-        
+
         self.writer.write_packet(&self.req_packet)?;
         self.writer.write_packet(&self.req_packet)?;
 
         self.writer.flush()?;
-        
+
         Ok(())
     }
 

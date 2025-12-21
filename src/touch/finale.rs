@@ -16,7 +16,10 @@ type ThresholdInfo = [u8; 17];
 
 impl From<&touch::Threshold> for ThresholdInfo {
     fn from(t: &touch::Threshold) -> Self {
-        [t.a1, t.b1, t.a2, t.b2, t.a3, t.b3, t.a4, t.b4, t.a5, t.b5, t.a6, t.b6, t.a7, t.b7, t.a8, t.b8, t.c]
+        [
+            t.a1, t.b1, t.a2, t.b2, t.a3, t.b3, t.a4, t.b4, t.a5, t.b5, t.a6, t.b6, t.a7, t.b7,
+            t.a8, t.b8, t.c,
+        ]
     }
 }
 
@@ -85,7 +88,7 @@ impl Finale {
     fn send_init(&mut self) -> Result<()> {
         info!("Sending HALT packet");
         self.halt()?;
-        
+
         self.init_threshold()?;
 
         info!("Sending STAT packet");
@@ -94,18 +97,21 @@ impl Finale {
         Ok(())
     }
 
-    fn init_threshold(&mut self) -> Result<()>{
+    fn init_threshold(&mut self) -> Result<()> {
         for panel in [b'L', b'R'] {
             info!("Getting threshold from {} panel area", panel as char);
             for area in 0x41..=0x51 {
                 match self.get_threshold(panel, area) {
                     Ok(_) => (),
                     Err(e) => {
-                        error!("Failed to get threshold from panel {:?} area {:?}: {}", panel, area, e);
+                        error!(
+                            "Failed to get threshold from panel {:?} area {:?}: {}",
+                            panel, area, e
+                        );
                         return Err(e.into());
                     }
                 }
-                
+
                 if let Packet::Data(_) = self.recieve_once()? {
                     if panel == b'L' {
                         self.set_threshold(panel, area, self.p1_threshold[area as usize - 0x41])?;
@@ -115,10 +121,10 @@ impl Finale {
                 }
             }
         }
-        
+
         Ok(())
     }
-    
+
     fn get_threshold(&mut self, panel: u8, area: u8) -> io::Result<()> {
         self.send(&[b'{', panel, area, b't', b'h', b'}'])
     }

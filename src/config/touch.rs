@@ -19,10 +19,10 @@ pub struct Touch {
     ///
     /// Port of the emulated device for Deluxe Player 1.
     pub dx_p2_port: String,
-    
+
     #[serde(default)]
     pub p1_threshold: Threshold,
-    
+
     #[serde(default)]
     pub p2_threshold: Threshold,
 }
@@ -31,7 +31,6 @@ pub struct Touch {
 pub struct Threshold {
     // /// Use thresholds values from Maimai DX that are set via Service Mode
     // pub use_from_dx: bool,
-    
     pub a1: u8,
     pub a2: u8,
     pub a3: u8,
@@ -40,7 +39,7 @@ pub struct Threshold {
     pub a6: u8,
     pub a7: u8,
     pub a8: u8,
-    
+
     pub b1: u8,
     pub b2: u8,
     pub b3: u8,
@@ -49,7 +48,7 @@ pub struct Threshold {
     pub b6: u8,
     pub b7: u8,
     pub b8: u8,
-    
+
     pub c: u8,
 }
 
@@ -65,7 +64,7 @@ impl Default for Threshold {
             a6: 200,
             a7: 130,
             a8: 65,
-            
+
             b1: 100,
             b2: 100,
             b3: 170,
@@ -74,7 +73,7 @@ impl Default for Threshold {
             b6: 170,
             b7: 100,
             b8: 100,
-            
+
             c: 110,
         }
     }

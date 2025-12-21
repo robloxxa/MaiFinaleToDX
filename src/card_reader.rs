@@ -32,11 +32,11 @@ use winapi::um::winuser::VK_RETURN;
 pub struct Cmd;
 
 impl Cmd {
-    pub const LED_RESET: u8 = 0x10;
+    // pub const LED_RESET: u8 = 0x10;
     pub const GET_FIRMWARE: u8 = 0x30;
     pub const GET_HARDWARE: u8 = 0x32;
     pub const RADIO_ON: u8 = 0x40;
-    pub const RADIO_OFF: u8 = 0x41;
+    // pub const RADIO_OFF: u8 = 0x41;
     pub const POLL: u8 = 0x42;
     pub const RESET: u8 = 0x62;
 }
