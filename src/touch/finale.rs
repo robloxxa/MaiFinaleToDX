@@ -160,13 +160,13 @@ impl Finale {
         for &b in buf {
             match self.parser.push(b) {
                 Some(Packet::Input { p1, p2 }) => {
-                    if let Some(dx_p1) = &self.dx_p1 {
+                    if let Some(dx_p1) = &mut self.dx_p1 {
                         if dx_p1.is_active() {
                             dx_p1.send(&convert_to_dx_buf(p1))?;
                         }
                     }
 
-                    if let Some(dx_p2) = &self.dx_p2 {
+                    if let Some(dx_p2) = &mut self.dx_p2 {
                         if dx_p2.is_active() {
                             dx_p2.send(&convert_to_dx_buf(p2))?;
                         }

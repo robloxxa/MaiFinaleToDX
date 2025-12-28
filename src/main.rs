@@ -1,7 +1,7 @@
 use crate::config::{Config, CLI};
 use crate::error::Result;
 use clap::Parser;
-use flexi_logger::{colored_opt_format, Logger};
+use flexi_logger::{FileSpec, LogSpecification, Logger, colored_opt_format, default_format, opt_format};
 use log::{error, info};
 
 use crate::helper_funcs::log_error;
@@ -35,22 +35,30 @@ fn main() {
 }
 
 fn setup() -> Result<()> {
-    let cli = CLI::parse();
+    let mut cli = CLI::parse();
 
     // Set timer resolution to lower value possible. This is done for increasing reading speed of COM ports.
     unsafe {
         timeapi::timeBeginPeriod(1);
     }
-
-    let logger = Logger::try_with_str("debug")?
-        .format(colored_opt_format)
-        .start()?;
+ 
+    
+    let log_level = cli.log_level.take().unwrap_or_else(|| "info".to_string());
+    
+    let mut logger = Logger::try_with_str(log_level)?
+        .format(colored_opt_format);
+    
+    if cli.log_to_file {
+        let file_spec = FileSpec::default().directory("./logs");
+        logger = logger
+            .format_for_files(opt_format)
+            .log_to_file(file_spec)
+            .duplicate_to_stderr(flexi_logger::Duplicate::All);
+    }
+    
+    logger.start()?;
 
     let config = Config::init(&cli)?;
-
-    if let Some(level) = cli.log_level.as_ref() {
-        logger.parse_new_spec(level)?;
-    }
 
     let exit_sig = Arc::new(AtomicBool::new(false));
 

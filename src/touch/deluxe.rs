@@ -46,6 +46,8 @@ pub struct Deluxe {
     num: u8,
     pub port: SerialPort,
     pub active: Arc<AtomicBool>,
+    
+    timeout_count: u8
 }
 
 impl Deluxe {
@@ -68,6 +70,7 @@ impl Deluxe {
             num,
             port,
             active: Arc::new(AtomicBool::new(false)),
+            timeout_count: 0
         })
     }
 
@@ -109,7 +112,7 @@ impl Deluxe {
         }
     }
 
-    pub(crate) fn send(&self, buf: &[u8]) -> Result<()> {
+    pub(crate) fn send(&mut self, buf: &[u8]) -> Result<()> {
         match self.port.write_all(buf) {
             Ok(()) => Ok(()),
             Err(ref err) if err.kind() == std::io::ErrorKind::TimedOut => {
@@ -117,6 +120,19 @@ impl Deluxe {
                     "Write to Deluxe P{} timed out. This is probably due to MaiMai being closed",
                     self.num
                 );
+                
+                self.timeout_count += 1;
+                
+                if self.timeout_count > 5 {
+                    warn!(
+                        "Too much timeouts for Deluxe P{}, please restart your game",
+                        self.num
+                    );
+                    
+                    self.timeout_count = 0;
+                    self.active.store(false, Ordering::Relaxed);
+                }
+                
                 Ok(())
             }
             Err(err) => Err(err.into()),
@@ -128,6 +144,7 @@ impl Deluxe {
             num: self.num,
             port: self.port.try_clone()?,
             active: self.active.clone(),
+            timeout_count: 0,
         })
     }
 
