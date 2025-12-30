@@ -61,8 +61,8 @@ impl Finale {
     pub fn init(&mut self) -> Result<()> {
         const RETRY_COUNT: u8 = 5;
 
-        self.port.set_read_timeout(Duration::from_secs(5))?;
-        self.port.set_write_timeout(Duration::from_secs(5))?;
+        self.port.set_read_timeout(Duration::from_secs(2))?;
+        self.port.set_write_timeout(Duration::from_secs(2))?;
 
         for c in 0..RETRY_COUNT {
             info!("Trying to initialize Finale Touchscreen. Attempt {}", c + 1);
@@ -117,6 +117,25 @@ impl Finale {
                         self.set_threshold(panel, area, self.p1_threshold[area as usize - 0x41])?;
                     } else {
                         self.set_threshold(panel, area, self.p2_threshold[area as usize - 0x41])?;
+                    }
+                }
+                
+                match self.get_threshold(panel, area) {
+                    Ok(_) => (),
+                    Err(e) => {
+                        error!(
+                            "Failed to get threshold from panel {:?} area {:?}: {}",
+                            panel, area, e
+                        );
+                        return Err(e.into());
+                    }
+                }
+                
+                if let Packet::Data(d) = self.recieve_once()? {
+                    if panel == b'L' {
+                        self.set_threshold(panel, area, d[3])?;
+                    } else {
+                        self.set_threshold(panel, area, d[3])?;
                     }
                 }
             }

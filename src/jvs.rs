@@ -100,16 +100,18 @@ impl JVS {
                 Ok(()) => {
                     self.reader
                         .get_mut()
-                        .set_read_timeout(Duration::from_secs(0))?;
+                        .set_read_timeout(Duration::from_secs(2))?;
                     self.writer
                         .get_mut()
-                        .set_write_timeout(Duration::from_secs(0))?;
+                        .set_write_timeout(Duration::from_secs(2))?;
                     return Ok(());
                 }
                 Err(e) if e.kind() == io::ErrorKind::TimedOut => {
                     error!("JVS initialization timed out")
                 }
-                Err(e) => return Err(e.into()),
+                Err(e) => {
+                    error!("JVS initialization failed: {}", e);
+                },
             }
         }
 
@@ -196,9 +198,9 @@ impl JVS {
         self.keyboard
             .key(self.input.p2_btn3, !bit_read(data[4], 0))?;
         self.keyboard
-            .key(self.input.p2_btn1, !bit_read(data[4], 4))?;
+            .key(self.input.p2_btn1, !bit_read(data[4], 2))?;
         self.keyboard
-            .key(self.input.p2_btn4, !bit_read(data[4], 3))?;
+            .key(self.input.p2_btn2, !bit_read(data[4], 3))?;
 
         self.keyboard
             .key(self.input.p2_btn8, !bit_read(data[5], 3))?;

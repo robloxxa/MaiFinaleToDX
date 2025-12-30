@@ -4,7 +4,7 @@ use crate::keyboard::Keyboard;
 use anyhow::Context;
 use jvs_packets::jvs_modified::{ModifiedPacket, RequestPacket, ResponsePacket};
 use jvs_packets::{Packet, ReadPacket, WritePacket};
-use log::info;
+use log::{debug, error, info};
 use serial2::SerialPort;
 use std::fs::OpenOptions;
 use std::io::Write;
@@ -53,6 +53,7 @@ pub struct CardReader {
 impl CardReader {
     pub fn new(finale_port_name: impl AsRef<str>, reader_file: impl Into<PathBuf>) -> Result<Self> {
         let mut finale_port = SerialPort::open(finale_port_name.as_ref(), 38_400)?;
+        
         finale_port.set_read_timeout(Duration::from_millis(5000))?;
 
         Ok(Self {
@@ -68,11 +69,15 @@ impl CardReader {
         self.cmd(dest, Cmd::RESET, &[00])?;
         self.cmd(dest, Cmd::RESET, &[00])?;
         info!("Reset sent");
+        
+        thread::sleep(Duration::from_secs(2));
+        
         self.cmd(dest, Cmd::GET_FIRMWARE, &[00])?;
         info!(
             "Firmware Version: {}",
             std::str::from_utf8(self.res_packet.data()).unwrap()
         );
+        
         self.cmd(dest, Cmd::GET_HARDWARE, &[00])?;
         info!(
             "Hardware Version: {}",
@@ -80,6 +85,23 @@ impl CardReader {
         );
         info!("Reader successfully initialized");
         Ok(())
+    }
+    
+    pub fn send_init(&mut self, dest: u8) -> io::Result<()> {
+        const RETRY_COUNT: u8 = 3;
+        for _ in 0..RETRY_COUNT {
+            match self.init(dest) {
+                Ok(()) => return Ok(()),
+                Err(e) if e.kind() == io::ErrorKind::TimedOut => {
+                    error!("Timeout occurred during initialization {}", e);
+                },
+                Err(e) => {
+                    error!("Initialization failed: {}", e);
+                }
+            }
+        }
+        
+        Err(io::Error::new(io::ErrorKind::Other, "Initialization failed"))
     }
 
     pub fn cmd(&mut self, dest: u8, cmd: u8, data: &[u8]) -> io::Result<()> {
@@ -105,10 +127,11 @@ pub fn spawn_thread(
             while !exit_sig.load(Ordering::Relaxed) {
                 match reader.cmd(00, Cmd::POLL, &[00]) {
                     Ok(()) => {
-                        if reader.res_packet.data().len() == 20 {
+                        if reader.res_packet.data().len() == 19 {
+                            debug!("Card Reader Data: {:?}", reader.res_packet.data());
                             let mut f = OpenOptions::new().write(true).open(&reader.path)?;
                             let mut id = String::new();
-                            for &b in &reader.res_packet.data()[4..=11] {
+                            for &b in &reader.res_packet.data()[3..=10] {
                                 id.push_str(&format!("{:02X}", b));
                             }
                             f.write_all(id.as_bytes())?;
@@ -117,8 +140,12 @@ pub fn spawn_thread(
                             kb.key_up(VK_RETURN)?;
                         }
                     }
-                    Err(ref e) if e.kind() == io::ErrorKind::TimedOut => {}
-                    Err(e) => return Err(e.into()),
+                    Err(ref e) if e.kind() == io::ErrorKind::TimedOut => {
+                        // error!("Card Reader Timeout: {}", e);
+                    }
+                    Err(e) => {
+                        error!("Card Reader Error: {}", e);
+                    }
                 }
                 thread::sleep(Duration::from_millis(250));
             }
@@ -147,7 +174,7 @@ pub fn init(
 
     let mut reader = CardReader::new(&cfg.port, file_path)?;
 
-    reader.init(00)?;
+    reader.send_init(00)?;
 
     handles.push(spawn_thread(reader, exit_sig.clone())?);
 

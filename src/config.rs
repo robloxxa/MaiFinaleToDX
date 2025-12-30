@@ -26,7 +26,7 @@ pub struct CLI {
     #[arg(long, short = 'l')]
     pub log_level: Option<String>,
     
-    #[arg(long, default_value = "false", action=ArgAction::SetTrue)]
+    #[arg(long, default_value = "true", action=ArgAction::SetTrue)]
     pub log_to_file: bool,
 
     #[arg(long, short = 'p', default_value = "./config.toml")]
