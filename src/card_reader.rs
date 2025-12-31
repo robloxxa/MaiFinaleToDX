@@ -130,10 +130,12 @@ pub fn spawn_thread(
                         if reader.res_packet.data().len() == 19 {
                             debug!("Card Reader Data: {:?}", reader.res_packet.data());
                             let mut f = OpenOptions::new().write(true).open(&reader.path)?;
+                            
                             let mut id = String::new();
                             for &b in &reader.res_packet.data()[3..=10] {
                                 id.push_str(&format!("{:02X}", b));
                             }
+                            
                             f.write_all(id.as_bytes())?;
                             kb.key_down(VK_RETURN)?;
                             thread::sleep(Duration::from_secs(2));

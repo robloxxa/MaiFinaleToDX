@@ -11,6 +11,9 @@ pub enum Error {
 
     #[error("logger error: {0}")]
     LoggerError(#[from] FlexiLoggerError),
+    
+    #[error("toml serialization error: {0}")]
+    TomlSerializationError(#[from] toml_edit::ser::Error),
 
     #[error(transparent)]
     Other(#[from] anyhow::Error),

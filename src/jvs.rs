@@ -134,7 +134,6 @@ impl JVS {
         info!(
             "JVS: Board Info: {}",
             std::str::from_utf8(self.res_packet.data())
-                .map_err(|e| anyhow::Error::from(e))
                 .map_err(|_| io::Error::from(io::ErrorKind::Other))?
         );
 
@@ -236,8 +235,6 @@ pub fn init(
                         Err(ref e) if e.kind() == io::ErrorKind::TimedOut => {}
                         Err(e) => {
                             error!("Failed to read digital. Error: {}", e);
-
-                            return Err(e.into());
                         }
                     }
                 }

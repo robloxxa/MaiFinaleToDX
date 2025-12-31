@@ -23,3 +23,5 @@ serial2 = { version = "0.2.17", features = ["windows"] }
 ctrlc = "3.4.2"
 jvs-packets = "1.1.0"
 thiserror = "1.0.64"
+serde_with = "3.16.1"
+toml_edit = { version = "0.24.0", features = ["serde"] }

@@ -1,7 +1,7 @@
 use crate::config::{Config, CLI};
 use crate::error::Result;
 use clap::Parser;
-use flexi_logger::{FileSpec, LogSpecification, Logger, colored_opt_format, default_format, opt_format};
+use flexi_logger::{FileSpec, Logger, colored_opt_format, opt_format};
 use log::{error, info};
 
 use crate::helper_funcs::log_error;
@@ -41,7 +41,6 @@ fn setup() -> Result<()> {
     unsafe {
         timeapi::timeBeginPeriod(1);
     }
- 
     
     let log_level = cli.log_level.take().unwrap_or_else(|| "info".to_string());
     

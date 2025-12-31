@@ -1,15 +1,16 @@
-use crate::config::touch;
-use crate::error::Result;
+use crate::config::{Touch, touch};
+use crate::error::{self, Result};
 use crate::touch::packet::finale_slave::*;
 use crate::touch::{HALT, STAT};
 use crate::{helper_funcs::bit_read, touch::deluxe::Deluxe};
 use anyhow::anyhow;
 use log::{debug, error, info};
 use serial2::SerialPort;
+use std::str::FromStr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread::JoinHandle;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use std::{io, thread};
 
 type ThresholdInfo = [u8; 17];
@@ -319,6 +320,69 @@ static FINALE_AREAS: [[[(usize, u8); 3]; 5]; 4] = [
         [C1, C2, STUB_AREA],
     ],
 ];
+
+struct TouchArea {
+    index: usize,
+    bit_position: u8,
+    
+    last_activation: Option<Instant>,
+    deactivate_after: Option<Duration>,
+    reactivate_after: Option<Duration>
+}
+
+impl FromStr for TouchArea {
+    type Err = error::Error;
+    
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        let pos = match s {
+            "A1" => A1,
+            "A2" => A2,
+            "A3" => A3,
+            "A4" => A4,
+            "A5" => A5,
+            "A6" => A6,
+            "A7" => A7,
+            "A8" => A8,
+            "B1" => B1,
+            "B2" => B2,
+            "B3" => B3,
+            "B4" => B4,
+            "B5" => B5,
+            "B6" => B6,
+            "B7" => B7,
+            "B8" => B8,
+            "C1" => C1,
+            "C2" => C2,
+            "D1" => D1,
+            "D2" => D2,
+            "D3" => D3,
+            "D4" => D4,
+            "D5" => D5,
+            "D6" => D6,
+            "D7" => D7,
+            "D8" => D8,
+            "E1" => E1,
+            "E2" => E2,
+            "E3" => E3,
+            "E4" => E4,
+            "E5" => E5,
+            "E6" => E6,
+            "E7" => E7,
+            "E8" => E8,
+            _ => {
+                return Err(error::Error::Other(anyhow!("Invalid format")))
+            }
+        };
+        
+        Ok(TouchArea {
+            index: pos.0,
+            bit_position: pos.1,
+            last_activation: None,
+            deactivate_after: None,
+            reactivate_after: None,
+        })
+    }
+}
 
 /// Mapping for Deluxe touch areas
 /// (usize, u8) = (Index of DELUXE_WRITE_BUFFER, Bit Position)
