@@ -1,12 +1,13 @@
-use crate::config::{Touch, touch};
-use crate::error::{self, Result};
+use crate::config::{self, touch};
+use crate::error::Error;
+use crate::error::Result;
 use crate::touch::packet::finale_slave::*;
 use crate::touch::{HALT, STAT};
 use crate::{helper_funcs::bit_read, touch::deluxe::Deluxe};
 use anyhow::anyhow;
+use arrayvec::ArrayVec;
 use log::{debug, error, info};
 use serial2::SerialPort;
-use std::str::FromStr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread::JoinHandle;
@@ -21,6 +22,63 @@ impl From<&touch::Threshold> for ThresholdInfo {
             t.a1, t.b1, t.a2, t.b2, t.a3, t.b3, t.a4, t.b4, t.a5, t.b5, t.a6, t.b6, t.a7, t.b7,
             t.a8, t.b8, t.c,
         ]
+    }
+}
+
+struct FinaleAreaMapping {
+    mapping: [[ArrayVec<TouchArea, 32>; 5]; 4],
+}
+
+impl FinaleAreaMapping {
+    pub fn new() -> Self {
+        FinaleAreaMapping {
+            mapping: [
+                [
+                    ArrayVec::new(),
+                    ArrayVec::new(),
+                    ArrayVec::new(),
+                    ArrayVec::new(),
+                    ArrayVec::new(),
+                ],
+                [
+                    ArrayVec::new(),
+                    ArrayVec::new(),
+                    ArrayVec::new(),
+                    ArrayVec::new(),
+                    ArrayVec::new(),
+                ],
+                [
+                    ArrayVec::new(),
+                    ArrayVec::new(),
+                    ArrayVec::new(),
+                    ArrayVec::new(),
+                    ArrayVec::new(),
+                ],
+                [
+                    ArrayVec::new(),
+                    ArrayVec::new(),
+                    ArrayVec::new(),
+                    ArrayVec::new(),
+                    ArrayVec::new(),
+                ],
+            ],
+        }
+    }
+    
+    fn add_area(&mut self, area: &config::DXTouchAreaMapping) {
+        
+    }
+}
+
+impl From<config::DXTouchAreaMapping> for FinaleAreaMapping {
+    fn from(mapping: config::DXTouchAreaMapping) -> Self {
+        let mut finale_mapping = FinaleAreaMapping::new();
+
+        for area in &[mapping.a1, mapping.a2, mapping.a3, mapping.a4, mapping.a5] {
+            finale_mapping.add_area(area);
+        }
+        
+        finale_mapping
     }
 }
 
@@ -120,7 +178,7 @@ impl Finale {
                         self.set_threshold(panel, area, self.p2_threshold[area as usize - 0x41])?;
                     }
                 }
-                
+
                 match self.get_threshold(panel, area) {
                     Ok(_) => (),
                     Err(e) => {
@@ -131,7 +189,7 @@ impl Finale {
                         return Err(e.into());
                     }
                 }
-                
+
                 if let Packet::Data(d) = self.recieve_once()? {
                     if panel == b'L' {
                         self.set_threshold(panel, area, d[3])?;
@@ -172,7 +230,10 @@ impl Finale {
         let n = match self.port.read(&mut self.buf) {
             Ok(n) => n,
             Err(ref e) if e.kind() == io::ErrorKind::TimedOut => return Ok(()),
-            Err(e) => return Err(e.into()),
+            Err(e) => {
+                error!("Failed to read from port: {}", e);
+                return Ok(());
+            }
         };
 
         let buf = &self.buf[..n];
@@ -324,64 +385,10 @@ static FINALE_AREAS: [[[(usize, u8); 3]; 5]; 4] = [
 struct TouchArea {
     index: usize,
     bit_position: u8,
-    
+
     last_activation: Option<Instant>,
     deactivate_after: Option<Duration>,
-    reactivate_after: Option<Duration>
-}
-
-impl FromStr for TouchArea {
-    type Err = error::Error;
-    
-    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
-        let pos = match s {
-            "A1" => A1,
-            "A2" => A2,
-            "A3" => A3,
-            "A4" => A4,
-            "A5" => A5,
-            "A6" => A6,
-            "A7" => A7,
-            "A8" => A8,
-            "B1" => B1,
-            "B2" => B2,
-            "B3" => B3,
-            "B4" => B4,
-            "B5" => B5,
-            "B6" => B6,
-            "B7" => B7,
-            "B8" => B8,
-            "C1" => C1,
-            "C2" => C2,
-            "D1" => D1,
-            "D2" => D2,
-            "D3" => D3,
-            "D4" => D4,
-            "D5" => D5,
-            "D6" => D6,
-            "D7" => D7,
-            "D8" => D8,
-            "E1" => E1,
-            "E2" => E2,
-            "E3" => E3,
-            "E4" => E4,
-            "E5" => E5,
-            "E6" => E6,
-            "E7" => E7,
-            "E8" => E8,
-            _ => {
-                return Err(error::Error::Other(anyhow!("Invalid format")))
-            }
-        };
-        
-        Ok(TouchArea {
-            index: pos.0,
-            bit_position: pos.1,
-            last_activation: None,
-            deactivate_after: None,
-            reactivate_after: None,
-        })
-    }
+    reactivate_after: Option<Duration>,
 }
 
 /// Mapping for Deluxe touch areas
