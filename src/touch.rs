@@ -33,9 +33,7 @@ pub fn setup(
     let dx_p2 = Deluxe::new(&config.dx_p2_port, 2).ok();
 
     let mut finale = Finale::new(
-        &config.finale_port,
-        &config.p1_threshold,
-        &config.p2_threshold,
+        config.clone(),
         dx_p1.as_ref().and_then(|x| x.try_clone().ok()),
         dx_p2.as_ref().and_then(|x| x.try_clone().ok()),
     )?;
@@ -52,6 +50,7 @@ pub fn setup(
         .transpose()?;
 
     handles.push(finale_thread);
+    
     dx_p1_thread.map(|t| handles.push(t));
     dx_p2_thread.map(|t| handles.push(t));
 

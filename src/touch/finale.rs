@@ -1,5 +1,4 @@
 use crate::config::{self, touch};
-use crate::error::Error;
 use crate::error::Result;
 use crate::touch::packet::finale_slave::*;
 use crate::touch::{HALT, STAT};
@@ -14,79 +13,15 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 use std::{io, thread};
 
-type ThresholdInfo = [u8; 17];
-
-impl From<&touch::Threshold> for ThresholdInfo {
-    fn from(t: &touch::Threshold) -> Self {
-        [
-            t.a1, t.b1, t.a2, t.b2, t.a3, t.b3, t.a4, t.b4, t.a5, t.b5, t.a6, t.b6, t.a7, t.b7,
-            t.a8, t.b8, t.c,
-        ]
-    }
-}
-
-struct FinaleAreaMapping {
-    mapping: [[ArrayVec<TouchArea, 32>; 5]; 4],
-}
-
-impl FinaleAreaMapping {
-    pub fn new() -> Self {
-        FinaleAreaMapping {
-            mapping: [
-                [
-                    ArrayVec::new(),
-                    ArrayVec::new(),
-                    ArrayVec::new(),
-                    ArrayVec::new(),
-                    ArrayVec::new(),
-                ],
-                [
-                    ArrayVec::new(),
-                    ArrayVec::new(),
-                    ArrayVec::new(),
-                    ArrayVec::new(),
-                    ArrayVec::new(),
-                ],
-                [
-                    ArrayVec::new(),
-                    ArrayVec::new(),
-                    ArrayVec::new(),
-                    ArrayVec::new(),
-                    ArrayVec::new(),
-                ],
-                [
-                    ArrayVec::new(),
-                    ArrayVec::new(),
-                    ArrayVec::new(),
-                    ArrayVec::new(),
-                    ArrayVec::new(),
-                ],
-            ],
-        }
-    }
-    
-    fn add_area(&mut self, area: &config::DXTouchAreaMapping) {
-        
-    }
-}
-
-impl From<config::DXTouchAreaMapping> for FinaleAreaMapping {
-    fn from(mapping: config::DXTouchAreaMapping) -> Self {
-        let mut finale_mapping = FinaleAreaMapping::new();
-
-        for area in &[mapping.a1, mapping.a2, mapping.a3, mapping.a4, mapping.a5] {
-            finale_mapping.add_area(area);
-        }
-        
-        finale_mapping
-    }
-}
 
 pub struct Finale {
     parser: Parser,
     buf: [u8; 14],
     p1_threshold: ThresholdInfo,
     p2_threshold: ThresholdInfo,
+    
+    p1_mapping: FinaleAreaMapping,
+    p2_mapping: FinaleAreaMapping,
 
     pub port: SerialPort,
     pub dx_p1: Option<Deluxe>,
@@ -95,23 +30,27 @@ pub struct Finale {
 
 impl Finale {
     pub fn new(
-        port_name: impl Into<String>,
-        p1_threshold: impl Into<ThresholdInfo>,
-        p2_threshold: impl Into<ThresholdInfo>,
+        cfg: config::Touch,
         dx_p1: Option<Deluxe>,
         dx_p2: Option<Deluxe>,
     ) -> Result<Self> {
-        let port_name = port_name.into();
-        let mut port = SerialPort::open(&port_name, 9600)?;
-        port.set_read_timeout(Duration::from_millis(0))?;
+        let mut port = SerialPort::open(&cfg.finale_port, 9600)?;
+        
+        port.set_read_timeout(Duration::from_millis(500))?;
+        
         port.discard_buffers()?;
 
         Ok(Self {
             port,
             parser: Parser::new(),
             buf: [0u8; 14],
-            p1_threshold: p1_threshold.into(),
-            p2_threshold: p2_threshold.into(),
+            
+            p1_threshold: cfg.p1_threshold.into(),
+            p2_threshold: cfg.p2_threshold.into(),
+            
+            p1_mapping: cfg.p1_dx_touch_mapping.into(),
+            p2_mapping: cfg.p2_dx_touch_mapping.into(),
+            
             dx_p1,
             dx_p2,
         })
@@ -243,13 +182,13 @@ impl Finale {
                 Some(Packet::Input { p1, p2 }) => {
                     if let Some(dx_p1) = &mut self.dx_p1 {
                         if dx_p1.is_active() {
-                            dx_p1.send(&convert_to_dx_buf(p1))?;
+                            dx_p1.send(&self.p1_mapping.convert_to_dx_buf(p1))?;
                         }
                     }
 
                     if let Some(dx_p2) = &mut self.dx_p2 {
                         if dx_p2.is_active() {
-                            dx_p2.send(&convert_to_dx_buf(p2))?;
+                            dx_p2.send(&self.p2_mapping.convert_to_dx_buf(p2))?;
                         }
                     }
                 }
@@ -332,107 +271,145 @@ impl Drop for Finale {
     }
 }
 
-fn convert_to_dx_buf(buf: [u8; 4]) -> [u8; 9] {
-    let mut write_buffer = DEFAULT_DELUXE_WRITE_BUFFER;
-    for (i, &bit) in buf.iter().enumerate() {
-        for pos in 0..5usize {
-            if !bit_read(bit, pos) || FINALE_AREAS[i][pos] == STUB_AREAS {
-                continue;
-            }
-
-            FINALE_AREAS[i][pos]
-                .iter()
-                .for_each(|a| write_buffer[a.0] |= a.1);
-        }
-    }
-
-    write_buffer
-}
-
 static DEFAULT_DELUXE_WRITE_BUFFER: [u8; 9] = [b'(', 0, 0, 0, 0, 0, 0, 0, b')'];
-
-static FINALE_AREAS: [[[(usize, u8); 3]; 5]; 4] = [
-    [
-        [A1, D1, D2],
-        [B1, E1, E2],
-        [A2, D2, D3],
-        [B2, E2, E3],
-        STUB_AREAS,
-    ],
-    [
-        [A3, D3, D4],
-        [B3, E3, E4],
-        [A4, D4, D5],
-        [B4, E4, E5],
-        STUB_AREAS,
-    ],
-    [
-        [A5, D5, D6],
-        [B5, E5, E6],
-        [A6, D6, D7],
-        [B6, E6, E7],
-        STUB_AREAS,
-    ],
-    [
-        [A7, D7, D8],
-        [B7, E7, E8],
-        [A8, D8, D1],
-        [B8, E8, E1],
-        [C1, C2, STUB_AREA],
-    ],
-];
 
 struct TouchArea {
     index: usize,
     bit_position: u8,
 
     last_activation: Option<Instant>,
-    deactivate_after: Option<Duration>,
-    reactivate_after: Option<Duration>,
+    
+    deactivate_after_ms: Duration,
+    reactivate_after_ms: Duration,
 }
 
-/// Mapping for Deluxe touch areas
-/// (usize, u8) = (Index of DELUXE_WRITE_BUFFER, Bit Position)
-const A1: (usize, u8) = (1, 1);
-const A2: (usize, u8) = (1, 2);
-const A3: (usize, u8) = (1, 4);
-const A4: (usize, u8) = (1, 8);
-const A5: (usize, u8) = (1, 16);
+impl TouchArea {
+    fn is_active(&mut self, bit: u8, pos: usize) -> bool {
+        if !bit_read(bit, pos) {
+            let _ = self.last_activation.take();
+            return false
+        }
+        
+        if self.deactivate_after_ms.is_zero() {
+            let elapsed = match self.last_activation {
+                Some(duration) => duration.elapsed(),
+                None => {
+                    self.last_activation = Some(Instant::now());
+                    return true
+                },
+            };
+            
+            if !self.reactivate_after_ms.is_zero() && self.reactivate_after_ms > elapsed {
+                self.last_activation = Some(Instant::now());
+                return true
+            }
+            
+            if self.deactivate_after_ms > elapsed {
+                return false
+            }
+        }
+       
+        
+        true
+    }
+}
 
-const A6: (usize, u8) = (2, 1);
-const A7: (usize, u8) = (2, 2);
-const A8: (usize, u8) = (2, 4);
-const B1: (usize, u8) = (2, 8);
-const B2: (usize, u8) = (2, 16);
+impl From<config::dx::Area> for TouchArea {
+    fn from(area: config::dx::Area) -> Self {
+        TouchArea {
+            index: area.position,
+            bit_position: area.bit as u8,
+            last_activation: None,
+            deactivate_after_ms: area.deactivate_after_ms,
+            reactivate_after_ms: area.reactivate_after_ms,
+        }
+    }
+}
 
-const B3: (usize, u8) = (3, 1);
-const B4: (usize, u8) = (3, 2);
-const B5: (usize, u8) = (3, 4);
-const B6: (usize, u8) = (3, 8);
-const B7: (usize, u8) = (3, 16);
+type ThresholdInfo = [u8; 17];
 
-const B8: (usize, u8) = (4, 1);
-const C1: (usize, u8) = (4, 2);
-const C2: (usize, u8) = (4, 4);
-const D1: (usize, u8) = (4, 8);
-const D2: (usize, u8) = (4, 16);
+impl From<touch::Threshold> for ThresholdInfo {
+    fn from(t: touch::Threshold) -> Self {
+        [
+            t.a1, t.b1, t.a2, t.b2, t.a3, t.b3, t.a4, t.b4, t.a5, t.b5, t.a6, t.b6, t.a7, t.b7,
+            t.a8, t.b8, t.c,
+        ]
+    }
+}
 
-const D3: (usize, u8) = (5, 1);
-const D4: (usize, u8) = (5, 2);
-const D5: (usize, u8) = (5, 4);
-const D6: (usize, u8) = (5, 8);
-const D7: (usize, u8) = (5, 16);
+struct FinaleAreaMapping {
+    mapping: [[ArrayVec<TouchArea, 32>; 5]; 4],
+}
 
-const D8: (usize, u8) = (6, 1);
-const E1: (usize, u8) = (6, 2);
-const E2: (usize, u8) = (6, 4);
-const E3: (usize, u8) = (6, 8);
-const E4: (usize, u8) = (6, 16);
+impl FinaleAreaMapping {
+    pub fn new() -> Self {
+        FinaleAreaMapping {
+            mapping: [
+                [
+                    ArrayVec::new(),
+                    ArrayVec::new(),
+                    ArrayVec::new(),
+                    ArrayVec::new(),
+                    ArrayVec::new(),
+                ],
+                [
+                    ArrayVec::new(),
+                    ArrayVec::new(),
+                    ArrayVec::new(),
+                    ArrayVec::new(),
+                    ArrayVec::new(),
+                ],
+                [
+                    ArrayVec::new(),
+                    ArrayVec::new(),
+                    ArrayVec::new(),
+                    ArrayVec::new(),
+                    ArrayVec::new(),
+                ],
+                [
+                    ArrayVec::new(),
+                    ArrayVec::new(),
+                    ArrayVec::new(),
+                    ArrayVec::new(),
+                    ArrayVec::new(),
+                ],
+            ],
+        }
+    }
 
-const E5: (usize, u8) = (7, 1);
-const E6: (usize, u8) = (7, 2);
-const E7: (usize, u8) = (7, 4);
-const E8: (usize, u8) = (7, 8);
+    fn add_area(&mut self, area: config::dx::Area) {
+        self.mapping[area.position][area.bit as usize].push(area.into());
+    }
 
-const STUB_AREA: (usize, u8) = (0, 0);
-const STUB_AREAS: [(usize, u8); 3] = [STUB_AREA, STUB_AREA, STUB_AREA];
+    fn convert_to_dx_buf(&mut self, buf: [u8; 4]) -> [u8; 9] {
+        let mut write_buffer = DEFAULT_DELUXE_WRITE_BUFFER;
+        
+        for (i, &bit) in buf.iter().enumerate() {
+            for pos in 0..5usize {
+                self.mapping[i][pos]
+                    .iter_mut()
+                    .for_each(|a| {
+                        if !a.is_active(bit, pos) {
+                            return
+                        }
+                        
+                        write_buffer[a.index] |= a.bit_position;
+                    });
+            }
+        }
+
+        write_buffer
+    }
+}
+
+impl From<config::dx::AreaMapping> for FinaleAreaMapping {
+    fn from(mapping: config::dx::AreaMapping) -> Self {
+        let mut finale_mapping = FinaleAreaMapping::new();
+
+        for area in mapping.into_values() {
+            finale_mapping.add_area(area);
+        }
+
+        finale_mapping
+    }
+}

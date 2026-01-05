@@ -61,7 +61,7 @@ impl Deluxe {
             e
         })?;
 
-        port.set_read_timeout(Duration::from_millis(0))?;
+        port.set_read_timeout(Duration::from_millis(500))?;
 
         port.discard_input_buffer()?;
         port.discard_output_buffer()?;
@@ -90,11 +90,9 @@ impl Deluxe {
                         self.port.discard_output_buffer()?;
 
                         self.active.store(false, Ordering::Relaxed);
-                        self.port.set_read_timeout(Duration::from_millis(0))?;
                     }
                     b'A' => {
                         self.active.store(true, Ordering::Relaxed);
-                        self.port.set_read_timeout(Duration::from_millis(1000))?;
                     }
                     b'k' | b'r' => {
                         read_buffer[0] = b'(';
