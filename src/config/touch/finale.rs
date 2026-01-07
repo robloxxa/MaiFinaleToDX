@@ -125,4 +125,4 @@ pub const B6_POS: (usize, u8) = (2, 3);
 pub const B7_POS: (usize, u8) = (3, 1);
 pub const B8_POS: (usize, u8) = (3, 3);
 
-pub const C1_POS: (usize, u8) = (4, 4);
+pub const C1_POS: (usize, u8) = (3, 4);

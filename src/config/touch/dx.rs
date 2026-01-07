@@ -94,9 +94,9 @@ pub struct AreaMapping {
 }
 
 impl AreaMapping {
-    pub fn into_values(self) -> [Area; 31] {
+    pub fn into_values(self) -> [Area; 34] {
         [
-            self.a1, self.a2, self.a3, self.a4, self.a5,
+            self.a1, self.a2, self.a3, self.a4, self.a5, self.a6, self.a7, self.a8,
             self.b1, self.b2, self.b3, self.b4, self.b5, self.b6, self.b7, self.b8,
             self.e1, self.e2, self.e3, self.e4, self.e5, self.e6, self.e7, self.e8,
             self.d1, self.d2, self.d3, self.d4, self.d5, self.d6, self.d7, self.d8,
@@ -108,7 +108,7 @@ impl AreaMapping {
 impl From<BTreeMap<String, Area>> for AreaMapping {
     fn from(map: BTreeMap<String, Area>) -> Self {
         let mut mapping = Self::default();
-
+        
         map.into_iter().for_each(|(key, area)| match key.as_str() {
             A1_NAME => mapping.a1 = area.set_pos(A1_POS),
             A2_NAME => mapping.a2 = area.set_pos(A2_POS),

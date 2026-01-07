@@ -7,19 +7,20 @@ use anyhow::anyhow;
 use arrayvec::ArrayVec;
 use log::{debug, error, info};
 use serial2::SerialPort;
+use std::backtrace::Backtrace;
+use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 use std::{io, thread};
 
-
 pub struct Finale {
     parser: Parser,
     buf: [u8; 14],
     p1_threshold: ThresholdInfo,
     p2_threshold: ThresholdInfo,
-    
+
     p1_mapping: FinaleAreaMapping,
     p2_mapping: FinaleAreaMapping,
 
@@ -29,28 +30,24 @@ pub struct Finale {
 }
 
 impl Finale {
-    pub fn new(
-        cfg: config::Touch,
-        dx_p1: Option<Deluxe>,
-        dx_p2: Option<Deluxe>,
-    ) -> Result<Self> {
+    pub fn new(cfg: config::Touch, dx_p1: Option<Deluxe>, dx_p2: Option<Deluxe>) -> Result<Self> {
         let mut port = SerialPort::open(&cfg.finale_port, 9600)?;
-        
+
         port.set_read_timeout(Duration::from_millis(500))?;
-        
+
         port.discard_buffers()?;
 
         Ok(Self {
             port,
             parser: Parser::new(),
             buf: [0u8; 14],
-            
+
             p1_threshold: cfg.p1_threshold.into(),
             p2_threshold: cfg.p2_threshold.into(),
-            
+
             p1_mapping: cfg.p1_dx_touch_mapping.into(),
             p2_mapping: cfg.p2_dx_touch_mapping.into(),
-            
+
             dx_p1,
             dx_p2,
         })
@@ -96,49 +93,51 @@ impl Finale {
     }
 
     fn init_threshold(&mut self) -> Result<()> {
-        for panel in [b'L', b'R'] {
-            info!("Getting threshold from {} panel area", panel as char);
-            for area in 0x41..=0x51 {
-                match self.get_threshold(panel, area) {
-                    Ok(_) => (),
-                    Err(e) => {
-                        error!(
-                            "Failed to get threshold from panel {:?} area {:?}: {}",
-                            panel, area, e
-                        );
-                        return Err(e.into());
-                    }
-                }
-
-                if let Packet::Data(_) = self.recieve_once()? {
-                    if panel == b'L' {
-                        self.set_threshold(panel, area, self.p1_threshold[area as usize - 0x41])?;
-                    } else {
-                        self.set_threshold(panel, area, self.p2_threshold[area as usize - 0x41])?;
-                    }
-                }
-
-                match self.get_threshold(panel, area) {
-                    Ok(_) => (),
-                    Err(e) => {
-                        error!(
-                            "Failed to get threshold from panel {:?} area {:?}: {}",
-                            panel, area, e
-                        );
-                        return Err(e.into());
-                    }
-                }
-
-                if let Packet::Data(d) = self.recieve_once()? {
-                    if panel == b'L' {
-                        self.set_threshold(panel, area, d[3])?;
-                    } else {
-                        self.set_threshold(panel, area, d[3])?;
-                    }
+        let p1 = self.p1_threshold.clone();
+        let p2 = self.p2_threshold.clone();
+        
+        info!("Initializing L");
+        for (area, threshold) in p1.iter() {
+            match self.get_threshold(b'L', *area) {
+                Ok(_) => (),
+                Err(e) => {
+                    error!(
+                        "Failed to get threshold from panel {:?} area {:?}: {}",
+                        b'L', area, e
+                    );
+                    return Err(e.into());
                 }
             }
-        }
 
+            if let Packet::Data(_) = self.recieve_once()? {
+                self.set_threshold(b'L', *area, *threshold)?;
+            }
+            
+            // TODO: maybe show in console
+            let _ = self.recieve_once()?;
+        }
+        
+        info!("Initializing R");
+        for (area, threshold) in p2.iter() {
+            match self.get_threshold(b'R', *area) {
+                Ok(_) => (),
+                Err(e) => {
+                    error!(
+                        "Failed to get threshold from panel {:?} area {:?}: {}",
+                        b'R', area, e
+                    );
+                    return Err(e.into());
+                }
+            }
+
+            if let Packet::Data(_) = self.recieve_once()? {
+                self.set_threshold(b'R', *area, *threshold)?;
+            }
+            
+            // TODO: maybe show in console
+            let _ = self.recieve_once()?;
+        }
+        
         Ok(())
     }
 
@@ -147,18 +146,14 @@ impl Finale {
     }
 
     fn set_threshold(&self, panel: u8, area: u8, threshold: u8) -> io::Result<()> {
-        self.send(&[b'{', panel, area, b't', threshold, b'}'])
+        self.send(&[b'{', panel, area, b'k', threshold, b'}'])
     }
 
     pub fn send(&self, buf: &[u8]) -> io::Result<()> {
         debug!(
             "Finale Touch: Sending {}",
             buf.iter()
-                .map(|&u| if u > 89 {
-                    String::from(u as char)
-                } else {
-                    u.to_string()
-                })
+                .map(|&u| format!("{}", u))
                 .collect::<String>()
         );
 
@@ -193,7 +188,6 @@ impl Finale {
                     }
                 }
                 Some(Packet::Data(packet)) => {
-                    self.set_threshold(packet[0], packet[1], packet[3])?;
                 }
                 None => {}
             }
@@ -273,12 +267,13 @@ impl Drop for Finale {
 
 static DEFAULT_DELUXE_WRITE_BUFFER: [u8; 9] = [b'(', 0, 0, 0, 0, 0, 0, 0, b')'];
 
+#[derive(Debug)]
 struct TouchArea {
     index: usize,
     bit_position: u8,
 
     last_activation: Option<Instant>,
-    
+
     deactivate_after_ms: Duration,
     reactivate_after_ms: Duration,
 }
@@ -286,30 +281,29 @@ struct TouchArea {
 impl TouchArea {
     fn is_active(&mut self, bit: u8, pos: usize) -> bool {
         if !bit_read(bit, pos) {
-            let _ = self.last_activation.take();
-            return false
+            self.last_activation = None;
+            return false;
         }
-        
-        if self.deactivate_after_ms.is_zero() {
+
+        if !self.deactivate_after_ms.is_zero() {
             let elapsed = match self.last_activation {
                 Some(duration) => duration.elapsed(),
                 None => {
-                    self.last_activation = Some(Instant::now());
-                    return true
-                },
+                    let instant = Instant::now();
+                    self.last_activation = Some(instant);
+                    instant.elapsed()
+                }
             };
-            
-            if !self.reactivate_after_ms.is_zero() && self.reactivate_after_ms > elapsed {
-                self.last_activation = Some(Instant::now());
-                return true
+
+            if !self.reactivate_after_ms.is_zero() && elapsed > self.reactivate_after_ms {
+                return true;
             }
-            
-            if self.deactivate_after_ms > elapsed {
-                return false
+
+            if elapsed > self.deactivate_after_ms {
+                return false;
             }
         }
-       
-        
+
         true
     }
 }
@@ -326,17 +320,42 @@ impl From<config::dx::Area> for TouchArea {
     }
 }
 
-type ThresholdInfo = [u8; 17];
+type ThresholdInfo = BTreeMap<u8, u8>;
+
+struct Threshold {
+    area: usize,
+    value: u8,
+}
 
 impl From<touch::Threshold> for ThresholdInfo {
     fn from(t: touch::Threshold) -> Self {
-        [
-            t.a1, t.b1, t.a2, t.b2, t.a3, t.b3, t.a4, t.b4, t.a5, t.b5, t.a6, t.b6, t.a7, t.b7,
-            t.a8, t.b8, t.c,
-        ]
+        let mut map = BTreeMap::new();
+
+        map.insert(b'A', t.a1);
+        map.insert(b'C', t.a2);
+        map.insert(b'E', t.a3);
+        map.insert(b'G', t.a4);
+        map.insert(b'I', t.a5);
+        map.insert(b'K', t.a6);
+        map.insert(b'M', t.a7);
+        map.insert(b'O', t.a8);
+
+        map.insert(b'B', t.b1);
+        map.insert(b'D', t.b2);
+        map.insert(b'F', t.b3);
+        map.insert(b'H', t.b4);
+        map.insert(b'J', t.b5);
+        map.insert(b'L', t.b6);
+        map.insert(b'N', t.b7);
+        map.insert(b'P', t.b8);
+
+        map.insert(b'Q', t.c);
+
+        map
     }
 }
 
+#[derive(Debug)]
 struct FinaleAreaMapping {
     mapping: [[ArrayVec<TouchArea, 32>; 5]; 4],
 }
@@ -378,23 +397,25 @@ impl FinaleAreaMapping {
     }
 
     fn add_area(&mut self, area: config::dx::Area) {
-        self.mapping[area.position][area.bit as usize].push(area.into());
+        let areas = area.activate_on.0.clone();
+
+        for finale_area in areas {
+            self.mapping[finale_area.position][finale_area.bit as usize].push(area.clone().into());
+        }
     }
 
     fn convert_to_dx_buf(&mut self, buf: [u8; 4]) -> [u8; 9] {
         let mut write_buffer = DEFAULT_DELUXE_WRITE_BUFFER;
-        
+
         for (i, &bit) in buf.iter().enumerate() {
             for pos in 0..5usize {
-                self.mapping[i][pos]
-                    .iter_mut()
-                    .for_each(|a| {
-                        if !a.is_active(bit, pos) {
-                            return
-                        }
-                        
-                        write_buffer[a.index] |= a.bit_position;
-                    });
+                self.mapping[i][pos].iter_mut().for_each(|a| {
+                    if !a.is_active(bit, pos) {
+                        return;
+                    }
+
+                    write_buffer[a.index] |= a.bit_position;
+                });
             }
         }
 

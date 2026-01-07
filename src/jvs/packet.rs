@@ -76,8 +76,6 @@ impl Parser {
                     let calculated_checksum = self.sum;
                     let received_checksum = b;
 
-                    dbg!(calculated_checksum, received_checksum);
-
                     self.reset();
 
                     if calculated_checksum == received_checksum {
