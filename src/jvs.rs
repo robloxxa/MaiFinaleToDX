@@ -3,7 +3,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::time::Duration;
-use std::{io, thread};
+use std::{i64, io, thread};
 
 use jvs_packets::jvs::{RequestPacket, ResponsePacket};
 use jvs_packets::{Packet, ReadPacket, WritePacket};
@@ -84,9 +84,7 @@ impl JVS {
         Ok(())
     }
 
-    pub fn init(&mut self, board: u8) -> Result<()> {
-        const RETRY_COUNT: u8 = 5;
-
+    pub fn try_init(&mut self, retry_count: i64, board: u8) -> Result<()> {
         self.reader
             .get_mut()
             .set_read_timeout(Duration::from_secs(5))?;
@@ -94,9 +92,9 @@ impl JVS {
             .get_mut()
             .set_write_timeout(Duration::from_secs(5))?;
 
-        for c in 0..RETRY_COUNT {
+        for c in 0..retry_count {
             info!("Trying to initialize JVS. Attempt {}", c + 1);
-            match self.send_init(board) {
+            match self.init(board) {
                 Ok(()) => {
                     self.reader
                         .get_mut()
@@ -111,7 +109,7 @@ impl JVS {
                 }
                 Err(e) => {
                     error!("JVS initialization failed: {}", e);
-                },
+                }
             }
         }
 
@@ -119,7 +117,7 @@ impl JVS {
         Err(io::Error::from(io::ErrorKind::TimedOut).into())
     }
 
-    pub fn send_init(&mut self, board: u8) -> io::Result<()> {
+    pub fn init(&mut self, board: u8) -> io::Result<()> {
         info!("JVS: Initializing");
         self.reset()?;
 
@@ -216,14 +214,14 @@ impl JVS {
     }
 }
 
-pub fn init(
+pub fn setup(
     settings: &config::JVS,
     handles: &mut Vec<JoinHandle<Result<()>>>,
     running: Arc<AtomicBool>,
 ) -> Result<()> {
     let mut jvs = JVS::new(&settings.port, &settings.input)?;
 
-    jvs.init(1)?;
+    jvs.try_init(settings.init_retry_count.unwrap_or_else(|| i64::MAX), 1)?;
 
     handles.push(
         thread::Builder::new()

@@ -14,6 +14,9 @@ pub enum Error {
     
     #[error("toml serialization error: {0}")]
     TomlSerializationError(#[from] toml_edit::ser::Error),
+    
+    #[error("toml deserialization error: {0}")]
+    TomlDeserializationError(#[from] toml_edit::de::Error),
 
     #[error("finale area error: {0}")]
     FinaleAreaError(String),

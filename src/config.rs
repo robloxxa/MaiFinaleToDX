@@ -1,7 +1,6 @@
 use std::path::Path;
 
 use crate::error;
-use anyhow::Context;
 use clap::{ArgAction, Parser};
 use serde::{Deserialize, Serialize};
 
@@ -99,7 +98,7 @@ impl Config {
         let toml_str = std::fs::read_to_string(path)?;
 
         let config =
-            toml::from_str::<Self>(&toml_str).context("failed to deserialize toml config")?;
+            toml_edit::de::from_str::<Self>(&toml_str)?;
 
         Ok(config)
     }

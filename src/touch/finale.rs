@@ -46,15 +46,13 @@ impl Finale {
         })
     }
 
-    pub fn init(&mut self) -> Result<()> {
-        const RETRY_COUNT: u8 = 5;
-
+    pub fn try_init(&mut self, retry_count: i64) -> Result<()> {
         self.port.set_read_timeout(Duration::from_secs(0))?;
         self.port.set_write_timeout(Duration::from_secs(0))?;
 
-        for c in 0..RETRY_COUNT {
+        for c in 0..retry_count {
             info!("Trying to initialize Finale Touchscreen. Attempt {}", c + 1);
-            match self.send_init() {
+            match self.init() {
                 Ok(()) => {
                     return Ok(());
                 }
@@ -71,7 +69,7 @@ impl Finale {
         Err(io::Error::new(io::ErrorKind::TimedOut, "Finale touchscreen timeout").into())
     }
 
-    fn send_init(&mut self) -> Result<()> {
+    fn init(&mut self) -> Result<()> {
         info!("Sending HALT packet");
         self.halt()?;
 

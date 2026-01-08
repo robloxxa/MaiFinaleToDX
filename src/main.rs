@@ -88,14 +88,14 @@ fn init_handles(cfg: &Config, exit_sig: &Arc<AtomicBool>) -> Result<Vec<JoinHand
 
     #[cfg(feature = "jvs")]
     if cfg.jvs.enabled {
-        jvs::init(&cfg.jvs, &mut handles, exit_sig.clone())
+        jvs::setup(&cfg.jvs, &mut handles, exit_sig.clone())
             .map_err(log_error)
             .ok();
     }
 
     #[cfg(feature = "reader")]
     if cfg.reader.enabled {
-        card_reader::init(&cfg.reader, &mut handles, exit_sig.clone())
+        card_reader::setup(&cfg.reader, &mut handles, exit_sig.clone())
             .map_err(log_error)
             .ok();
     }

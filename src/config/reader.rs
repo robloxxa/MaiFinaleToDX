@@ -16,6 +16,7 @@ pub struct Reader {
     /// List of Reader destionations. 
     /// By default Finale Cabinet has two card readers which is 00 and 01.
     /// Do not change if you don't know what are you doing
+    #[serde(default = "default_destinations")]
     pub destinations: Vec<u8>,
     
     pub init_retry_count: Option<i64>,
@@ -31,4 +32,8 @@ impl Default for Reader {
             destinations: vec![00, 01],
         }
     }
+}
+
+fn default_destinations() -> Vec<u8> {
+    vec![00, 01]
 }

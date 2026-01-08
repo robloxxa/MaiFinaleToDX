@@ -38,7 +38,7 @@ pub fn setup(
         dx_p2.as_ref().and_then(|x| x.try_clone().ok()),
     )?;
 
-    finale.init()?;
+    finale.try_init(config.init_retry_count.unwrap_or_else(|| i64::MAX))?;
 
     let finale_thread = Finale::spawn_thread(finale, exit_sig.clone())?;
 

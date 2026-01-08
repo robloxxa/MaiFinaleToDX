@@ -1,5 +1,5 @@
-use crate::config;
 use crate::config::reader::Reader;
+use crate::config::{self, reader};
 use crate::error::Result;
 use crate::keyboard::Keyboard;
 use anyhow::{anyhow, Context};
@@ -96,17 +96,20 @@ impl CardReader {
             dest,
             std::str::from_utf8(self.res_packet.data()).unwrap()
         );
-        
+
+        self.cmd(dest, Cmd::RADIO_ON, &[0x01, 0x03])?;
+        info!("(DEST: {}) Radio On", dest);
+
         info!("Reader at destination {} successfully initialized", dest);
-        
+
         Ok(())
     }
 
-    pub fn send_init(&mut self) -> io::Result<()> {
+    pub fn try_init(&mut self, retry_count: i64) -> io::Result<()> {
         let mut destinations: Vec<u8> = Vec::new();
 
         for i in 0..self.destinations.len() {
-            for r in 0..self.retry_count {
+            for r in 0..retry_count {
                 let destination = self.destinations[i];
 
                 info!(
@@ -134,8 +137,6 @@ impl CardReader {
             }
         }
 
-        
-        
         if destinations.is_empty() {
             Err(io::Error::new(
                 io::ErrorKind::Other,
@@ -157,60 +158,64 @@ impl CardReader {
         Ok(())
     }
 
-    pub fn poll(&mut self, dest: u8) -> io::Result<()> {
-        match self.cmd(dest, Cmd::POLL, &[00]) {
-            Ok(()) => {
-                if self.res_packet.data().len() == 19 {
-                    let mut id = String::new();
-                    for &b in &self.res_packet.data()[3..=10] {
-                        id.push_str(&format!("{:02X}", b));
+    pub fn poll(&mut self) -> io::Result<()> {
+        for i in 0..self.destinations.len() {
+            match self.cmd(self.destinations[i], Cmd::POLL, &[00]) {
+                Ok(()) => {
+                    if self.res_packet.data().len() == 19 {
+                        let mut id = String::new();
+                        for &b in &self.res_packet.data()[3..=10] {
+                            id.push_str(&format!("{:02X}", b));
+                        }
+
+                        self.reader_file.write_all(id.as_bytes())?;
+
+                        self.keyboard.key_down(VK_RETURN)?;
+                        thread::sleep(Duration::from_secs(2));
+                        self.keyboard.key_up(VK_RETURN)?;
                     }
-
-                    self.reader_file.write_all(id.as_bytes())?;
-
-                    self.keyboard.key_down(VK_RETURN)?;
-                    thread::sleep(Duration::from_secs(2));
-                    self.keyboard.key_up(VK_RETURN)?;
                 }
-                Ok(())
-            }
-            Err(ref e) if e.kind() == io::ErrorKind::TimedOut => Ok(()),
-            Err(e) => {
-                error!("Card Reader Error: {}", e);
-                Ok(())
+                Err(ref e) if e.kind() == io::ErrorKind::TimedOut => {}
+                Err(e) => {
+                    error!("Card Reader Error: {}", e);
+                }
             }
         }
+        Ok(())
     }
 }
-
 
 impl Drop for CardReader {
     fn drop(&mut self) {
         for i in 0..self.destinations.len() {
-            self.cmd(self.destinations[i], Cmd::RADIO_OFF, &[0x01, 0x03]).unwrap();
+            self.cmd(self.destinations[i], Cmd::RADIO_OFF, &[0x01, 0x03])
+                .unwrap();
         }
     }
 }
 
-pub fn spawn_thread(
-    mut reader: CardReader,
-    exit_sig: Arc<AtomicBool>,
-) -> Result<JoinHandle<Result<()>>> {
-    let thread = thread::Builder::new()
-        .name("Card Reader Thread".to_string())
-        .spawn(move || -> Result<()> {
-            reader.cmd(00, Cmd::RADIO_ON, &[0x01, 0x03])?;
-            reader.cmd(01, Cmd::RADIO_ON, &[0x01, 0x03])?;
+pub fn setup(
+    cfg: &config::reader::Reader,
+    handles: &mut Vec<JoinHandle<Result<()>>>,
+    running: Arc<AtomicBool>,
+) -> Result<()> {
+    let mut reader = CardReader::new(cfg)?;
 
-            while !exit_sig.load(Ordering::Relaxed) {
-                let _ = reader.poll(00);
-                let _ = reader.poll(01);
-                thread::sleep(Duration::from_millis(250));
-            }
+    reader.try_init(cfg.init_retry_count.unwrap_or_else(|| i64::MAX))?;
 
-            Ok(())
-        })
-        .with_context(|| format!("Card Reader thread failed to spawn"))?;
+    handles.push(
+        thread::Builder::new()
+            .name("Card Reader Thread".to_string())
+            .spawn(move || -> Result<()> {
+                while !running.load(Ordering::Relaxed) {
+                    let _ = reader.poll();
+                    thread::sleep(Duration::from_millis(250));
+                }
 
-    Ok(thread)
+                Ok(())
+            })
+            .with_context(|| format!("Card Reader thread failed to spawn"))?,
+    );
+
+    Ok(())
 }

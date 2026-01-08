@@ -23,7 +23,7 @@ pub struct Touch {
     /// Port of the emulated device for Deluxe Player 1.
     pub dx_p2_port: String,
     
-    pub init_retry_count: Option<u8>,
+    pub init_retry_count: Option<i64>,
 
     #[serde(default)]
     pub p1_threshold: Threshold,
