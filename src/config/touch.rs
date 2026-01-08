@@ -22,6 +22,8 @@ pub struct Touch {
     ///
     /// Port of the emulated device for Deluxe Player 1.
     pub dx_p2_port: String,
+    
+    pub init_retry_count: Option<u8>,
 
     #[serde(default)]
     pub p1_threshold: Threshold,
@@ -95,6 +97,7 @@ impl Default for Touch {
             finale_port: "COM23".to_string(),
             dx_p1_port: "COM6".to_string(),
             dx_p2_port: "COM8".to_string(),
+            init_retry_count: None,
             p1_threshold: Threshold::default(),
             p2_threshold: Threshold::default(),
             p1_dx_touch_mapping: dx::AreaMapping::default(),

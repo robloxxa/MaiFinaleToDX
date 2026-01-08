@@ -35,7 +35,9 @@ pub struct JVS {
 
     /// COM Port for Finale's JVS
     pub port: String,
-
+    
+    pub init_retry_count: Option<i64>,
+    
     /// JVS input bindings to keyboard
     #[serde(default)]
     pub input: Input,
@@ -46,6 +48,7 @@ impl Default for JVS {
         Self {
             enabled: true,
             port: "COM23".to_string(),
+            init_retry_count: None,
             input: Input::default(),
         }
     }

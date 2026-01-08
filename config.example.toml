@@ -4,6 +4,116 @@ finale_port = "COM23"
 dx_p1_port = "COM6"
 dx_p2_port = "COM8"
 
+[touch.p1_threshold]
+A1 = 65
+A2 = 130
+A3 = 200
+A4 = 180
+A5 = 180
+A6 = 200
+A7 = 130
+A8 = 65
+B1 = 100
+B2 = 100
+B3 = 170
+B4 = 140
+B5 = 140
+B6 = 170
+B7 = 100
+B8 = 100
+C = 110
+
+[touch.p2_threshold]
+A1 = 65
+A2 = 130
+A3 = 200
+A4 = 180
+A5 = 180
+A6 = 200
+A7 = 130
+A8 = 65
+B1 = 100
+B2 = 100
+B3 = 170
+B4 = 140
+B5 = 140
+B6 = 170
+B7 = 100
+B8 = 100
+C = 110
+
+[touch.p1_dx_touch_mapping]
+A1 = { activate_on = ["A1"], deactivate_after_ms = 0, reactivate_after_ms = 0 }
+A2 = { activate_on = ["A2"], deactivate_after_ms = 0, reactivate_after_ms = 0 }
+A3 = { activate_on = ["A3"], deactivate_after_ms = 0, reactivate_after_ms = 0 }
+A4 = { activate_on = ["A4"], deactivate_after_ms = 0, reactivate_after_ms = 0 }
+A5 = { activate_on = ["A5"], deactivate_after_ms = 0, reactivate_after_ms = 0 }
+A6 = { activate_on = ["A6"], deactivate_after_ms = 0, reactivate_after_ms = 0 }
+A7 = { activate_on = ["A7"], deactivate_after_ms = 0, reactivate_after_ms = 0 }
+A8 = { activate_on = ["A8"], deactivate_after_ms = 0, reactivate_after_ms = 0 }
+B1 = { activate_on = ["B1"], deactivate_after_ms = 0, reactivate_after_ms = 0 }
+B2 = { activate_on = ["B2"], deactivate_after_ms = 0, reactivate_after_ms = 0 }
+B3 = { activate_on = ["B3"], deactivate_after_ms = 0, reactivate_after_ms = 0 }
+B4 = { activate_on = ["B4"], deactivate_after_ms = 0, reactivate_after_ms = 0 }
+B5 = { activate_on = ["B5"], deactivate_after_ms = 0, reactivate_after_ms = 0 }
+B6 = { activate_on = ["B6"], deactivate_after_ms = 0, reactivate_after_ms = 0 }
+B7 = { activate_on = ["B7"], deactivate_after_ms = 0, reactivate_after_ms = 0 }
+B8 = { activate_on = ["B8"], deactivate_after_ms = 0, reactivate_after_ms = 0 }
+E1 = { activate_on = ["B1", "B8"], deactivate_after_ms = 0, reactivate_after_ms = 0 }
+E2 = { activate_on = ["B1", "B2"], deactivate_after_ms = 0, reactivate_after_ms = 0 }
+E3 = { activate_on = ["B2", "B3"], deactivate_after_ms = 0, reactivate_after_ms = 0 }
+E4 = { activate_on = ["B3", "B4"], deactivate_after_ms = 0, reactivate_after_ms = 0 }
+E5 = { activate_on = ["B4", "B5"], deactivate_after_ms = 0, reactivate_after_ms = 0 }
+E6 = { activate_on = ["B5", "B6"], deactivate_after_ms = 0, reactivate_after_ms = 0 }
+E7 = { activate_on = ["B6", "B7"], deactivate_after_ms = 0, reactivate_after_ms = 0 }
+E8 = { activate_on = ["B7", "B8"], deactivate_after_ms = 0, reactivate_after_ms = 0 }
+D1 = { activate_on = ["A1", "A8"], deactivate_after_ms = 0, reactivate_after_ms = 0 }
+D2 = { activate_on = ["A1", "A2"], deactivate_after_ms = 0, reactivate_after_ms = 0 }
+D3 = { activate_on = ["A2", "A3"], deactivate_after_ms = 0, reactivate_after_ms = 0 }
+D4 = { activate_on = ["A3", "A4"], deactivate_after_ms = 0, reactivate_after_ms = 0 }
+D5 = { activate_on = ["A4", "A5"], deactivate_after_ms = 0, reactivate_after_ms = 0 }
+D6 = { activate_on = ["A5", "A6"], deactivate_after_ms = 0, reactivate_after_ms = 0 }
+D7 = { activate_on = ["A6", "A7"], deactivate_after_ms = 0, reactivate_after_ms = 0 }
+D8 = { activate_on = ["A7", "A8"], deactivate_after_ms = 0, reactivate_after_ms = 0 }
+C1 = { activate_on = ["C1"], deactivate_after_ms = 0, reactivate_after_ms = 0 }
+C2 = { activate_on = ["C1"], deactivate_after_ms = 0, reactivate_after_ms = 0 }
+
+[touch.p2_dx_touch_mapping]
+A1 = { activate_on = ["A1"], deactivate_after_ms = 0, reactivate_after_ms = 0 }
+A2 = { activate_on = ["A2"], deactivate_after_ms = 0, reactivate_after_ms = 0 }
+A3 = { activate_on = ["A3"], deactivate_after_ms = 0, reactivate_after_ms = 0 }
+A4 = { activate_on = ["A4"], deactivate_after_ms = 0, reactivate_after_ms = 0 }
+A5 = { activate_on = ["A5"], deactivate_after_ms = 0, reactivate_after_ms = 0 }
+A6 = { activate_on = ["A6"], deactivate_after_ms = 0, reactivate_after_ms = 0 }
+A7 = { activate_on = ["A7"], deactivate_after_ms = 0, reactivate_after_ms = 0 }
+A8 = { activate_on = ["A8"], deactivate_after_ms = 0, reactivate_after_ms = 0 }
+B1 = { activate_on = ["B1"], deactivate_after_ms = 0, reactivate_after_ms = 0 }
+B2 = { activate_on = ["B2"], deactivate_after_ms = 0, reactivate_after_ms = 0 }
+B3 = { activate_on = ["B3"], deactivate_after_ms = 0, reactivate_after_ms = 0 }
+B4 = { activate_on = ["B4"], deactivate_after_ms = 0, reactivate_after_ms = 0 }
+B5 = { activate_on = ["B5"], deactivate_after_ms = 0, reactivate_after_ms = 0 }
+B6 = { activate_on = ["B6"], deactivate_after_ms = 0, reactivate_after_ms = 0 }
+B7 = { activate_on = ["B7"], deactivate_after_ms = 0, reactivate_after_ms = 0 }
+B8 = { activate_on = ["B8"], deactivate_after_ms = 0, reactivate_after_ms = 0 }
+E1 = { activate_on = ["B1", "B8"], deactivate_after_ms = 0, reactivate_after_ms = 0 }
+E2 = { activate_on = ["B1", "B2"], deactivate_after_ms = 0, reactivate_after_ms = 0 }
+E3 = { activate_on = ["B2", "B3"], deactivate_after_ms = 0, reactivate_after_ms = 0 }
+E4 = { activate_on = ["B3", "B4"], deactivate_after_ms = 0, reactivate_after_ms = 0 }
+E5 = { activate_on = ["B4", "B5"], deactivate_after_ms = 0, reactivate_after_ms = 0 }
+E6 = { activate_on = ["B5", "B6"], deactivate_after_ms = 0, reactivate_after_ms = 0 }
+E7 = { activate_on = ["B6", "B7"], deactivate_after_ms = 0, reactivate_after_ms = 0 }
+E8 = { activate_on = ["B7", "B8"], deactivate_after_ms = 0, reactivate_after_ms = 0 }
+D1 = { activate_on = ["A1", "A8"], deactivate_after_ms = 0, reactivate_after_ms = 0 }
+D2 = { activate_on = ["A1", "A2"], deactivate_after_ms = 0, reactivate_after_ms = 0 }
+D3 = { activate_on = ["A2", "A3"], deactivate_after_ms = 0, reactivate_after_ms = 0 }
+D4 = { activate_on = ["A3", "A4"], deactivate_after_ms = 0, reactivate_after_ms = 0 }
+D5 = { activate_on = ["A4", "A5"], deactivate_after_ms = 0, reactivate_after_ms = 0 }
+D6 = { activate_on = ["A5", "A6"], deactivate_after_ms = 0, reactivate_after_ms = 0 }
+D7 = { activate_on = ["A6", "A7"], deactivate_after_ms = 0, reactivate_after_ms = 0 }
+D8 = { activate_on = ["A7", "A8"], deactivate_after_ms = 0, reactivate_after_ms = 0 }
+C1 = { activate_on = ["C1"], deactivate_after_ms = 0, reactivate_after_ms = 0 }
+C2 = { activate_on = ["C1"], deactivate_after_ms = 0, reactivate_after_ms = 0 }
+
 [jvs]
 enabled = true
 port = "COM23"

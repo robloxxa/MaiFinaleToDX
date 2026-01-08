@@ -7,7 +7,6 @@ use anyhow::anyhow;
 use arrayvec::ArrayVec;
 use log::{debug, error, info};
 use serial2::SerialPort;
-use std::backtrace::Backtrace;
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -31,14 +30,8 @@ pub struct Finale {
 
 impl Finale {
     pub fn new(cfg: config::Touch, dx_p1: Option<Deluxe>, dx_p2: Option<Deluxe>) -> Result<Self> {
-        let mut port = SerialPort::open(&cfg.finale_port, 9600)?;
-
-        port.set_read_timeout(Duration::from_millis(500))?;
-
-        port.discard_buffers()?;
-
         Ok(Self {
-            port,
+            port: SerialPort::open(&cfg.finale_port, 9600)?,
             parser: Parser::new(),
             buf: [0u8; 14],
 
@@ -56,15 +49,13 @@ impl Finale {
     pub fn init(&mut self) -> Result<()> {
         const RETRY_COUNT: u8 = 5;
 
-        self.port.set_read_timeout(Duration::from_secs(2))?;
-        self.port.set_write_timeout(Duration::from_secs(2))?;
+        self.port.set_read_timeout(Duration::from_secs(0))?;
+        self.port.set_write_timeout(Duration::from_secs(0))?;
 
         for c in 0..RETRY_COUNT {
             info!("Trying to initialize Finale Touchscreen. Attempt {}", c + 1);
             match self.send_init() {
                 Ok(()) => {
-                    self.port.set_read_timeout(Duration::from_millis(0))?;
-                    self.port.set_write_timeout(Duration::from_millis(0))?;
                     return Ok(());
                 }
                 Err(crate::error::Error::Io(ref e)) if e.kind() == io::ErrorKind::TimedOut => {
@@ -84,6 +75,7 @@ impl Finale {
         info!("Sending HALT packet");
         self.halt()?;
 
+        info!("Initializing Threshold");
         self.init_threshold()?;
 
         info!("Sending STAT packet");
@@ -187,9 +179,7 @@ impl Finale {
                         }
                     }
                 }
-                Some(Packet::Data(packet)) => {
-                }
-                None => {}
+                _ => {}
             }
         }
 
@@ -230,6 +220,7 @@ impl Finale {
     // Sends HALT packet to touchscreen
     pub fn halt(&mut self) -> io::Result<()> {
         self.send(HALT)?;
+        
         // Discard input buffer so there is no data if touch was working before
         self.port.discard_buffers()
     }
@@ -321,11 +312,6 @@ impl From<config::dx::Area> for TouchArea {
 }
 
 type ThresholdInfo = BTreeMap<u8, u8>;
-
-struct Threshold {
-    area: usize,
-    value: u8,
-}
 
 impl From<touch::Threshold> for ThresholdInfo {
     fn from(t: touch::Threshold) -> Self {

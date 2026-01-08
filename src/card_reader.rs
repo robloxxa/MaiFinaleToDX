@@ -1,19 +1,20 @@
+use crate::config;
 use crate::config::reader::Reader;
 use crate::error::Result;
 use crate::keyboard::Keyboard;
-use anyhow::Context;
+use anyhow::{anyhow, Context};
 use jvs_packets::jvs_modified::{ModifiedPacket, RequestPacket, ResponsePacket};
 use jvs_packets::{Packet, ReadPacket, WritePacket};
 use log::{debug, error, info};
 use serial2::SerialPort;
-use std::fs::OpenOptions;
+use std::fs::{File, OpenOptions};
 use std::io::Write;
-use std::path::PathBuf;
+use std::ops::Index;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::time::Duration;
-use std::{io, thread};
+use std::{i64, io, thread};
 use winapi::um::winuser::VK_RETURN;
 
 // #[derive(Debug)]
@@ -36,7 +37,7 @@ impl Cmd {
     pub const GET_FIRMWARE: u8 = 0x30;
     pub const GET_HARDWARE: u8 = 0x32;
     pub const RADIO_ON: u8 = 0x40;
-    // pub const RADIO_OFF: u8 = 0x41;
+    pub const RADIO_OFF: u8 = 0x41;
     pub const POLL: u8 = 0x42;
     pub const RESET: u8 = 0x62;
 }
@@ -44,64 +45,106 @@ impl Cmd {
 pub struct CardReader {
     port: SerialPort,
 
-    path: PathBuf,
+    keyboard: Keyboard,
+
+    reader_file: File,
+    destinations: Vec<u8>,
+    retry_count: i64,
 
     req_packet: RequestPacket<128>,
     res_packet: ResponsePacket<128>,
 }
 
 impl CardReader {
-    pub fn new(finale_port_name: impl AsRef<str>, reader_file: impl Into<PathBuf>) -> Result<Self> {
-        let mut finale_port = SerialPort::open(finale_port_name.as_ref(), 38_400)?;
-        
+    pub fn new(cfg: &config::Reader) -> Result<Self> {
+        let mut finale_port = SerialPort::open(&cfg.port, 38_400)?;
+
         finale_port.set_read_timeout(Duration::from_millis(5000))?;
 
         Ok(Self {
             port: finale_port,
-            path: reader_file.into(),
+            keyboard: Keyboard::new(),
+            reader_file: OpenOptions::new().read(true).write(true).open(
+                cfg.device_file
+                    .as_ref()
+                    .ok_or_else(|| anyhow!("Device file not specified"))?,
+            )?,
+            retry_count: cfg.init_retry_count.unwrap_or_else(|| i64::MAX),
+            destinations: cfg.destinations.clone(),
             req_packet: RequestPacket::default(),
             res_packet: ResponsePacket::default(),
         })
     }
 
     pub fn init(&mut self, dest: u8) -> io::Result<()> {
-        info!("Initializing Readers...");
         self.cmd(dest, Cmd::RESET, &[00])?;
         self.cmd(dest, Cmd::RESET, &[00])?;
-        info!("Reset sent");
-        
+        info!("(DEST: {}) Reset sent", dest);
+
         thread::sleep(Duration::from_secs(2));
-        
+
         self.cmd(dest, Cmd::GET_FIRMWARE, &[00])?;
         info!(
-            "Firmware Version: {}",
+            "(DEST: {}) Firmware Version: {}",
+            dest,
+            std::str::from_utf8(self.res_packet.data()).unwrap()
+        );
+
+        self.cmd(dest, Cmd::GET_HARDWARE, &[00])?;
+        info!(
+            "(DEST: {}) Hardware Version: {}",
+            dest,
             std::str::from_utf8(self.res_packet.data()).unwrap()
         );
         
-        self.cmd(dest, Cmd::GET_HARDWARE, &[00])?;
-        info!(
-            "Hardware Version: {}",
-            std::str::from_utf8(self.res_packet.data()).unwrap()
-        );
-        info!("Reader successfully initialized");
+        info!("Reader at destination {} successfully initialized", dest);
+        
         Ok(())
     }
-    
-    pub fn send_init(&mut self, dest: u8) -> io::Result<()> {
-        const RETRY_COUNT: u8 = 3;
-        for _ in 0..RETRY_COUNT {
-            match self.init(dest) {
-                Ok(()) => return Ok(()),
-                Err(e) if e.kind() == io::ErrorKind::TimedOut => {
-                    error!("Timeout occurred during initialization {}", e);
-                },
-                Err(e) => {
-                    error!("Initialization failed: {}", e);
+
+    pub fn send_init(&mut self) -> io::Result<()> {
+        let mut destinations: Vec<u8> = Vec::new();
+
+        for i in 0..self.destinations.len() {
+            for r in 0..self.retry_count {
+                let destination = self.destinations[i];
+
+                info!(
+                    "Initializing Card Reader at destination {}. Attempt {}",
+                    destination, r
+                );
+                match self.init(destination) {
+                    Ok(()) => {
+                        destinations.push(destination);
+                        break;
+                    }
+                    Err(e) if e.kind() == io::ErrorKind::TimedOut => {
+                        error!(
+                            "Timeout occurred during initialization at destionation {}: {}",
+                            destination, e
+                        );
+                    }
+                    Err(e) => {
+                        error!(
+                            "Initialization failed at destination {}: {}",
+                            destination, e
+                        );
+                    }
                 }
             }
         }
+
         
-        Err(io::Error::new(io::ErrorKind::Other, "Initialization failed"))
+        
+        if destinations.is_empty() {
+            Err(io::Error::new(
+                io::ErrorKind::Other,
+                "Failed to initialize Card Reader",
+            ))
+        } else {
+            self.destinations = destinations;
+            Ok(())
+        }
     }
 
     pub fn cmd(&mut self, dest: u8, cmd: u8, data: &[u8]) -> io::Result<()> {
@@ -113,6 +156,40 @@ impl CardReader {
 
         Ok(())
     }
+
+    pub fn poll(&mut self, dest: u8) -> io::Result<()> {
+        match self.cmd(dest, Cmd::POLL, &[00]) {
+            Ok(()) => {
+                if self.res_packet.data().len() == 19 {
+                    let mut id = String::new();
+                    for &b in &self.res_packet.data()[3..=10] {
+                        id.push_str(&format!("{:02X}", b));
+                    }
+
+                    self.reader_file.write_all(id.as_bytes())?;
+
+                    self.keyboard.key_down(VK_RETURN)?;
+                    thread::sleep(Duration::from_secs(2));
+                    self.keyboard.key_up(VK_RETURN)?;
+                }
+                Ok(())
+            }
+            Err(ref e) if e.kind() == io::ErrorKind::TimedOut => Ok(()),
+            Err(e) => {
+                error!("Card Reader Error: {}", e);
+                Ok(())
+            }
+        }
+    }
+}
+
+
+impl Drop for CardReader {
+    fn drop(&mut self) {
+        for i in 0..self.destinations.len() {
+            self.cmd(self.destinations[i], Cmd::RADIO_OFF, &[0x01, 0x03]).unwrap();
+        }
+    }
 }
 
 pub fn spawn_thread(
@@ -122,33 +199,12 @@ pub fn spawn_thread(
     let thread = thread::Builder::new()
         .name("Card Reader Thread".to_string())
         .spawn(move || -> Result<()> {
-            let mut kb = Keyboard::new();
             reader.cmd(00, Cmd::RADIO_ON, &[0x01, 0x03])?;
+            reader.cmd(01, Cmd::RADIO_ON, &[0x01, 0x03])?;
+
             while !exit_sig.load(Ordering::Relaxed) {
-                match reader.cmd(00, Cmd::POLL, &[00]) {
-                    Ok(()) => {
-                        if reader.res_packet.data().len() == 19 {
-                            debug!("Card Reader Data: {:?}", reader.res_packet.data());
-                            let mut f = OpenOptions::new().write(true).open(&reader.path)?;
-                            
-                            let mut id = String::new();
-                            for &b in &reader.res_packet.data()[3..=10] {
-                                id.push_str(&format!("{:02X}", b));
-                            }
-                            
-                            f.write_all(id.as_bytes())?;
-                            kb.key_down(VK_RETURN)?;
-                            thread::sleep(Duration::from_secs(2));
-                            kb.key_up(VK_RETURN)?;
-                        }
-                    }
-                    Err(ref e) if e.kind() == io::ErrorKind::TimedOut => {
-                        // error!("Card Reader Timeout: {}", e);
-                    }
-                    Err(e) => {
-                        error!("Card Reader Error: {}", e);
-                    }
-                }
+                let _ = reader.poll(00);
+                let _ = reader.poll(01);
                 thread::sleep(Duration::from_millis(250));
             }
 
@@ -157,28 +213,4 @@ pub fn spawn_thread(
         .with_context(|| format!("Card Reader thread failed to spawn"))?;
 
     Ok(thread)
-}
-
-pub fn init(
-    cfg: &Reader,
-    handles: &mut Vec<JoinHandle<Result<()>>>,
-    exit_sig: Arc<AtomicBool>,
-) -> Result<()> {
-    let file_path = cfg.device_file.as_ref().map_or_else(
-        || {
-            Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "The reader_device_file is empty, NFC reader is disabled.",
-            ))
-        },
-        |p| Ok(p.to_owned()),
-    )?;
-
-    let mut reader = CardReader::new(&cfg.port, file_path)?;
-
-    reader.send_init(00)?;
-
-    handles.push(spawn_thread(reader, exit_sig.clone())?);
-
-    Ok(())
 }

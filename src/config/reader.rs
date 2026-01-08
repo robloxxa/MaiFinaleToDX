@@ -12,6 +12,13 @@ pub struct Reader {
 
     /// Device file for NFC reader
     pub device_file: Option<String>,
+    
+    /// List of Reader destionations. 
+    /// By default Finale Cabinet has two card readers which is 00 and 01.
+    /// Do not change if you don't know what are you doing
+    pub destinations: Vec<u8>,
+    
+    pub init_retry_count: Option<i64>,
 }
 
 impl Default for Reader {
@@ -20,6 +27,8 @@ impl Default for Reader {
             enabled: false,
             port: "COM24".to_string(),
             device_file: Some("./device.txt".to_string()),
+            init_retry_count: None,
+            destinations: vec![00, 01],
         }
     }
 }
