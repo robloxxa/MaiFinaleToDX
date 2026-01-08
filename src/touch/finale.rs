@@ -85,7 +85,7 @@ impl Finale {
     fn init_threshold(&mut self) -> Result<()> {
         let p1 = self.p1_threshold.clone();
         let p2 = self.p2_threshold.clone();
-        
+
         info!("Initializing L");
         for (area, threshold) in p1.iter() {
             match self.get_threshold(b'L', *area) {
@@ -102,11 +102,11 @@ impl Finale {
             if let Packet::Data(_) = self.recieve_once()? {
                 self.set_threshold(b'L', *area, *threshold)?;
             }
-            
+
             // TODO: maybe show in console
             let _ = self.recieve_once()?;
         }
-        
+
         info!("Initializing R");
         for (area, threshold) in p2.iter() {
             match self.get_threshold(b'R', *area) {
@@ -123,11 +123,11 @@ impl Finale {
             if let Packet::Data(_) = self.recieve_once()? {
                 self.set_threshold(b'R', *area, *threshold)?;
             }
-            
+
             // TODO: maybe show in console
             let _ = self.recieve_once()?;
         }
-        
+
         Ok(())
     }
 
@@ -142,9 +142,7 @@ impl Finale {
     pub fn send(&self, buf: &[u8]) -> io::Result<()> {
         debug!(
             "Finale Touch: Sending {}",
-            buf.iter()
-                .map(|&u| format!("{}", u))
-                .collect::<String>()
+            buf.iter().map(|&u| format!("{}", u)).collect::<String>()
         );
 
         self.port.write_all(buf)
@@ -218,7 +216,7 @@ impl Finale {
     // Sends HALT packet to touchscreen
     pub fn halt(&mut self) -> io::Result<()> {
         self.send(HALT)?;
-        
+
         // Discard input buffer so there is no data if touch was working before
         self.port.discard_buffers()
     }

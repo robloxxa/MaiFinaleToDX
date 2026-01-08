@@ -84,11 +84,11 @@ impl Config {
 
     pub fn save(&self, path: impl AsRef<Path>) -> Result<(), error::Error> {
         let mut doc = toml_edit::ser::to_document(self)?;
-        
+
         let mut format = visit::FormatVisit;
         format.visit_document_mut(&mut doc);
 
-        doc.fmt(); 
+        doc.fmt();
         std::fs::write(path, doc.to_string())?;
 
         Ok(())
@@ -97,8 +97,7 @@ impl Config {
     pub fn load(path: impl AsRef<Path>) -> Result<Self, error::Error> {
         let toml_str = std::fs::read_to_string(path)?;
 
-        let config =
-            toml_edit::de::from_str::<Self>(&toml_str)?;
+        let config = toml_edit::de::from_str::<Self>(&toml_str)?;
 
         Ok(config)
     }

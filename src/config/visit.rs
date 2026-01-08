@@ -1,7 +1,5 @@
 use toml_edit::{
-    visit_mut::{
-        visit_table_like_kv_mut, VisitMut,
-    },
+    visit_mut::{visit_table_like_kv_mut, VisitMut},
     Item, Value,
 };
 
@@ -16,10 +14,10 @@ impl VisitMut for FormatVisit {
                     into_inline_table(v);
                 })
             }
-            
+
             return;
         }
-        
+
         visit_table_like_kv_mut(self, key, node);
     }
 }

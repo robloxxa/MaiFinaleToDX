@@ -22,7 +22,7 @@ pub struct Touch {
     ///
     /// Port of the emulated device for Deluxe Player 1.
     pub dx_p2_port: String,
-    
+
     pub init_retry_count: Option<i64>,
 
     #[serde(default)]
@@ -33,11 +33,10 @@ pub struct Touch {
 
     #[serde(default)]
     pub p1_dx_touch_mapping: dx::AreaMapping,
-    
+
     #[serde(default)]
     pub p2_dx_touch_mapping: dx::AreaMapping,
 }
-
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
 #[serde(rename_all = "UPPERCASE")]

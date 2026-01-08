@@ -35,9 +35,9 @@ pub struct JVS {
 
     /// COM Port for Finale's JVS
     pub port: String,
-    
+
     pub init_retry_count: Option<i64>,
-    
+
     /// JVS input bindings to keyboard
     #[serde(default)]
     pub input: Input,

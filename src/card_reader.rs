@@ -1,15 +1,13 @@
-use crate::config::reader::Reader;
-use crate::config::{self, reader};
+use crate::config::{self};
 use crate::error::Result;
 use crate::keyboard::Keyboard;
 use anyhow::{anyhow, Context};
 use jvs_packets::jvs_modified::{ModifiedPacket, RequestPacket, ResponsePacket};
 use jvs_packets::{Packet, ReadPacket, WritePacket};
-use log::{debug, error, info};
+use log::{error, info};
 use serial2::SerialPort;
 use std::fs::{File, OpenOptions};
 use std::io::Write;
-use std::ops::Index;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread::JoinHandle;

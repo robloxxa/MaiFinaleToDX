@@ -2,21 +2,19 @@ use serde::{Deserialize, Serialize};
 
 use crate::error;
 
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(try_from = "Vec<String>", into = "Vec<String>")]
-pub struct AreaVec(
-    pub Vec<Area>
-);
+pub struct AreaVec(pub Vec<Area>);
 
 impl TryFrom<Vec<String>> for AreaVec {
     type Error = error::Error;
-    
+
     fn try_from(value: Vec<String>) -> Result<Self, Self::Error> {
-        let vec = value.iter().map(|s| {
-            Area::try_from(s.as_str())
-        }).collect::<Result<Vec<_>, _>>()?;
-        
+        let vec = value
+            .iter()
+            .map(|s| Area::try_from(s.as_str()))
+            .collect::<Result<Vec<_>, _>>()?;
+
         Ok(AreaVec(vec))
     }
 }
@@ -36,13 +34,17 @@ pub struct Area {
 
 impl Area {
     pub const fn new(name: &'static str, pos: (usize, u8)) -> Self {
-        Area { name: name, position: pos.0, bit: pos.1 }
+        Area {
+            name: name,
+            position: pos.0,
+            bit: pos.1,
+        }
     }
 }
 
 impl TryFrom<&str> for Area {
     type Error = error::Error;
-    
+
     fn try_from(value: &str) -> Result<Self, Self::Error> {
         match value.as_ref() {
             A1_NAME => Ok(A1),
@@ -62,7 +64,10 @@ impl TryFrom<&str> for Area {
             B7_NAME => Ok(B7),
             B8_NAME => Ok(B8),
             C1_NAME => Ok(C1),
-            v => Err(error::Error::FinaleAreaError(format!("Invalid Finale Area Name: {}", v))),
+            v => Err(error::Error::FinaleAreaError(format!(
+                "Invalid Finale Area Name: {}",
+                v
+            ))),
         }
     }
 }

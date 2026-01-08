@@ -50,7 +50,7 @@ pub fn setup(
         .transpose()?;
 
     handles.push(finale_thread);
-    
+
     dx_p1_thread.map(|t| handles.push(t));
     dx_p2_thread.map(|t| handles.push(t));
 
