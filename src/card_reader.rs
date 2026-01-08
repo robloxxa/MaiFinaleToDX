@@ -47,7 +47,6 @@ pub struct CardReader {
 
     reader_file: File,
     destinations: Vec<u8>,
-    retry_count: i64,
 
     req_packet: RequestPacket<128>,
     res_packet: ResponsePacket<128>,
@@ -67,7 +66,6 @@ impl CardReader {
                     .as_ref()
                     .ok_or_else(|| anyhow!("Device file not specified"))?,
             )?,
-            retry_count: cfg.init_retry_count.unwrap_or_else(|| i64::MAX),
             destinations: cfg.destinations.clone(),
             req_packet: RequestPacket::default(),
             res_packet: ResponsePacket::default(),

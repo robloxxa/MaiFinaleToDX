@@ -175,6 +175,9 @@ impl Finale {
                         }
                     }
                 }
+                Some(Packet::Data(d)) => {
+                    debug!("Received data packet: {:?}", d);
+                }
                 _ => {}
             }
         }
