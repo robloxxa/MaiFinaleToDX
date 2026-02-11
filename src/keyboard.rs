@@ -59,11 +59,11 @@ impl Keyboard {
         let contains_key = self.pressed_keys.contains(&key_code);
         match (contains_key, press) {
             (false, true) => {
-                let _ = Self::send_input(0, key_code as WORD, 0)?;
+                Self::send_input(0, key_code as WORD, 0)?;
                 self.pressed_keys.insert(key_code);
             }
             (true, false) => {
-                let _ = Self::send_input(KEYEVENTF_KEYUP, key_code as WORD, 0)?;
+                Self::send_input(KEYEVENTF_KEYUP, key_code as WORD, 0)?;
                 self.pressed_keys.remove(&key_code);
             }
             _ => {}

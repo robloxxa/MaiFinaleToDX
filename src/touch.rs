@@ -38,21 +38,25 @@ pub fn setup(
         dx_p2.as_ref().and_then(|x| x.try_clone().ok()),
     )?;
 
-    finale.try_init(config.init_retry_count.unwrap_or_else(|| i64::MAX))?;
+    finale.try_init(config.init_retry_count.unwrap_or(i64::MAX))?;
 
     let finale_thread = Finale::spawn_thread(finale, exit_sig.clone())?;
 
     let dx_p1_thread = dx_p1
-        .and_then(|x| Some(Deluxe::spawn_thread(x, exit_sig.clone())))
+        .map(|x| Deluxe::spawn_thread(x, exit_sig.clone()))
         .transpose()?;
     let dx_p2_thread = dx_p2
-        .and_then(|x| Some(Deluxe::spawn_thread(x, exit_sig.clone())))
+        .map(|x| Deluxe::spawn_thread(x, exit_sig.clone()))
         .transpose()?;
 
     handles.push(finale_thread);
 
-    dx_p1_thread.map(|t| handles.push(t));
-    dx_p2_thread.map(|t| handles.push(t));
+    if let Some(t) = dx_p1_thread {
+        handles.push(t);
+    }
+    if let Some(t) = dx_p2_thread {
+        handles.push(t);
+    }
 
     info!("Touchscreen is ready. Good luck touchin'");
 

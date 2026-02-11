@@ -2,6 +2,7 @@ use crate::config::{self};
 use crate::error::Result;
 use crate::keyboard::Keyboard;
 use anyhow::{anyhow, Context};
+use arrayvec::ArrayVec;
 use jvs_packets::jvs_modified::{ModifiedPacket, RequestPacket, ResponsePacket};
 use jvs_packets::{Packet, ReadPacket, WritePacket};
 use log::{error, info};
@@ -12,7 +13,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::time::Duration;
-use std::{i64, io, thread};
+use std::{io, thread};
 use winapi::um::winuser::VK_RETURN;
 
 // #[derive(Debug)]
@@ -46,7 +47,7 @@ pub struct CardReader {
     keyboard: Keyboard,
 
     reader_file: File,
-    destinations: Vec<u8>,
+    destinations: ArrayVec<u8, 4>,
 
     req_packet: RequestPacket<128>,
     res_packet: ResponsePacket<128>,
@@ -102,7 +103,7 @@ impl CardReader {
     }
 
     pub fn try_init(&mut self, retry_count: i64) -> io::Result<()> {
-        let mut destinations: Vec<u8> = Vec::new();
+        let mut destinations = ArrayVec::<u8, 4>::new();
 
         for i in 0..self.destinations.len() {
             for r in 0..retry_count {
@@ -119,7 +120,7 @@ impl CardReader {
                     }
                     Err(e) if e.kind() == io::ErrorKind::TimedOut => {
                         error!(
-                            "Timeout occurred during initialization at destionation {}: {}",
+                            "Timeout occurred during initialization at destination {}: {}",
                             destination, e
                         );
                     }
@@ -134,10 +135,7 @@ impl CardReader {
         }
 
         if destinations.is_empty() {
-            Err(io::Error::new(
-                io::ErrorKind::Other,
-                "Failed to initialize Card Reader",
-            ))
+            Err(io::Error::other("Failed to initialize Card Reader"))
         } else {
             self.destinations = destinations;
             Ok(())
@@ -184,8 +182,10 @@ impl CardReader {
 impl Drop for CardReader {
     fn drop(&mut self) {
         for i in 0..self.destinations.len() {
-            self.cmd(self.destinations[i], Cmd::RADIO_OFF, &[0x01, 0x03])
-                .unwrap();
+            let dest = self.destinations[i];
+            if let Err(e) = self.cmd(dest, Cmd::RADIO_OFF, &[0x01, 0x03]) {
+                error!("Failed to turn off radio for destination {}: {}", dest, e);
+            }
         }
     }
 }
@@ -193,24 +193,24 @@ impl Drop for CardReader {
 pub fn setup(
     cfg: &config::reader::Reader,
     handles: &mut Vec<JoinHandle<Result<()>>>,
-    running: Arc<AtomicBool>,
+    should_exit: Arc<AtomicBool>,
 ) -> Result<()> {
     let mut reader = CardReader::new(cfg)?;
 
-    reader.try_init(cfg.init_retry_count.unwrap_or_else(|| i64::MAX))?;
+    reader.try_init(cfg.init_retry_count.unwrap_or(i64::MAX))?;
 
     handles.push(
         thread::Builder::new()
             .name("Card Reader Thread".to_string())
             .spawn(move || -> Result<()> {
-                while !running.load(Ordering::Relaxed) {
+                while !should_exit.load(Ordering::Acquire) {
                     let _ = reader.poll();
                     thread::sleep(Duration::from_millis(250));
                 }
 
                 Ok(())
             })
-            .with_context(|| format!("Card Reader thread failed to spawn"))?,
+            .with_context(|| "Card Reader thread failed to spawn".to_string())?,
     );
 
     Ok(())

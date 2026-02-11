@@ -26,24 +26,24 @@ const P2_BTN7_DEFAULT: c_int = VK_NUMPAD4;
 const P2_BTN8_DEFAULT: c_int = VK_NUMPAD7;
 
 #[derive(Deserialize, Serialize, Debug)]
-pub struct JVS {
-    /// Enable JVS feature
+pub struct Jvs {
+    /// Enable Jvs feature
     ///
-    /// This will try to read from JVS com port (specified by `jvs_port`) and use it as a keyboard.
+    /// This will try to read from Jvs com port (specified by `jvs_port`) and use it as a keyboard.
     /// See [`Input`] to see what keys are emulated.
     pub enabled: bool,
 
-    /// COM Port for Finale's JVS
+    /// COM Port for Finale's Jvs
     pub port: String,
 
     pub init_retry_count: Option<i64>,
 
-    /// JVS input bindings to keyboard
+    /// Jvs input bindings to keyboard
     #[serde(default)]
     pub input: Input,
 }
 
-impl Default for JVS {
+impl Default for Jvs {
     fn default() -> Self {
         Self {
             enabled: true,

@@ -1,10 +1,9 @@
-use crate::config::{Config, CLI};
+use crate::config::{Cli, Config};
 use crate::error::Result;
 use clap::Parser;
 use flexi_logger::{colored_opt_format, opt_format, FileSpec, Logger};
-use log::{error, info};
+use log::{error, info, warn};
 
-use crate::helper_funcs::log_error;
 use anyhow::Context;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -35,11 +34,14 @@ fn main() {
 }
 
 fn setup() -> Result<()> {
-    let mut cli = CLI::parse();
+    let mut cli = Cli::parse();
 
     // Set timer resolution to lower value possible. This is done for increasing reading speed of COM ports.
     unsafe {
-        timeapi::timeBeginPeriod(1);
+        let result = timeapi::timeBeginPeriod(1);
+        if result != 0 {
+            warn!("Failed to set timer resolution to 1ms (error code: {}). This may affect COM port performance.", result);
+        }
     }
 
     let log_level = cli.log_level.take().unwrap_or_else(|| "info".to_string());
@@ -64,7 +66,7 @@ fn setup() -> Result<()> {
 
     ctrlc::set_handler(move || {
         info!("Got CTRL+C, exiting...");
-        exit_sig.store(true, Ordering::Relaxed);
+        exit_sig.store(true, Ordering::Release);
     })
     .context("Failed to setup CTRL+C handler")?;
 
@@ -80,23 +82,26 @@ fn init_handles(cfg: &Config, exit_sig: &Arc<AtomicBool>) -> Result<Vec<JoinHand
 
     #[cfg(feature = "touch")]
     if cfg.touch.enabled {
-        touch::setup(&cfg.touch, &mut handles, exit_sig.clone())
-            .map_err(log_error)
-            .ok();
+        if let Err(e) = touch::setup(&cfg.touch, &mut handles, exit_sig.clone()) {
+            error!("Failed to initialize Touch module: {}", e);
+            error!("Touch functionality will be disabled");
+        }
     };
 
     #[cfg(feature = "jvs")]
     if cfg.jvs.enabled {
-        jvs::setup(&cfg.jvs, &mut handles, exit_sig.clone())
-            .map_err(log_error)
-            .ok();
+        if let Err(e) = jvs::setup(&cfg.jvs, &mut handles, exit_sig.clone()) {
+            error!("Failed to initialize JVS module: {}", e);
+            error!("JVS functionality will be disabled");
+        }
     }
 
     #[cfg(feature = "reader")]
     if cfg.reader.enabled {
-        card_reader::setup(&cfg.reader, &mut handles, exit_sig.clone())
-            .map_err(log_error)
-            .ok();
+        if let Err(e) = card_reader::setup(&cfg.reader, &mut handles, exit_sig.clone()) {
+            error!("Failed to initialize Card Reader module: {}", e);
+            error!("Card Reader functionality will be disabled");
+        }
     }
 
     Ok(handles)

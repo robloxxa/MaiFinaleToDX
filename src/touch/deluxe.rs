@@ -83,21 +83,21 @@ impl Deluxe {
                         self.port.discard_input_buffer()?;
                         self.port.discard_output_buffer()?;
 
-                        self.active.store(false, Ordering::Relaxed)
+                        self.active.store(false, Ordering::Release)
                     }
                     b'L' => {
                         self.port.discard_input_buffer()?;
                         self.port.discard_output_buffer()?;
 
-                        self.active.store(false, Ordering::Relaxed);
+                        self.active.store(false, Ordering::Release);
                     }
                     b'A' => {
-                        self.active.store(true, Ordering::Relaxed);
+                        self.active.store(true, Ordering::Release);
                     }
                     b'k' | b'r' => {
                         read_buffer[0] = b'(';
                         read_buffer[5] = b')';
-                        self.send(&mut read_buffer)?;
+                        self.send(&read_buffer)?;
                     }
                     _ => {
                         panic!("Unknown command: {:?}", &read_buffer);
@@ -128,7 +128,7 @@ impl Deluxe {
                     );
 
                     self.timeout_count = 0;
-                    self.active.store(false, Ordering::Relaxed);
+                    self.active.store(false, Ordering::Release);
                 }
 
                 Ok(())
@@ -155,7 +155,7 @@ impl Deluxe {
         let thread = thread::Builder::new()
             .name(format!("Deluxe P{} Touch Thread", num))
             .spawn(move || {
-                while !exit_sig.load(Ordering::Relaxed) {
+                while !exit_sig.load(Ordering::Acquire) {
                     deluxe_touch.process()?;
                 }
 
@@ -167,6 +167,6 @@ impl Deluxe {
     }
 
     pub fn is_active(&self) -> bool {
-        self.active.load(Ordering::Relaxed)
+        self.active.load(Ordering::Acquire)
     }
 }

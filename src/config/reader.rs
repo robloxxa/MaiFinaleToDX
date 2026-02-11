@@ -1,3 +1,4 @@
+use arrayvec::ArrayVec;
 use serde::{Deserialize, Serialize};
 
 #[derive(Deserialize, Serialize, Debug)]
@@ -13,11 +14,12 @@ pub struct Reader {
     /// Device file for NFC reader
     pub device_file: Option<String>,
 
-    /// List of Reader destionations.
+    /// List of Reader destinations.
     /// By default Finale Cabinet has two card readers which is 00 and 01.
-    /// Do not change if you don't know what are you doing
+    /// Do not change if you don't know what you are doing.
+    /// Maximum 4 destinations supported.
     #[serde(default = "default_destinations")]
-    pub destinations: Vec<u8>,
+    pub destinations: ArrayVec<u8, 4>,
 
     pub init_retry_count: Option<i64>,
 }
@@ -29,11 +31,14 @@ impl Default for Reader {
             port: "COM24".to_string(),
             device_file: Some("./device.txt".to_string()),
             init_retry_count: None,
-            destinations: vec![00, 01],
+            destinations: default_destinations(),
         }
     }
 }
 
-fn default_destinations() -> Vec<u8> {
-    vec![00, 01]
+fn default_destinations() -> ArrayVec<u8, 4> {
+    let mut destinations = ArrayVec::new();
+    destinations.push(0);
+    destinations.push(1);
+    destinations
 }

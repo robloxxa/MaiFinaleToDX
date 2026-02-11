@@ -24,7 +24,7 @@ pub mod visit;
 #[derive(Parser, Deserialize, Serialize, Debug)]
 #[clap(author = "robloxxa", version, about, long_about = None)]
 /// Tool that allow playing Maimai DX on original Maimai Finale Cabinet
-pub struct CLI {
+pub struct Cli {
     #[arg(long, short = 'l')]
     pub log_level: Option<String>,
 
@@ -40,7 +40,7 @@ pub struct CLI {
     pub create_config: bool,
 }
 
-#[derive(Deserialize, Serialize, Debug)]
+#[derive(Deserialize, Serialize, Debug, Default)]
 pub struct Config {
     #[cfg(feature = "touch")]
     #[serde(default)]
@@ -48,30 +48,15 @@ pub struct Config {
 
     #[cfg(feature = "jvs")]
     #[serde(default)]
-    pub jvs: JVS,
+    pub jvs: Jvs,
 
     #[cfg(feature = "reader")]
     #[serde(default)]
     pub reader: Reader,
 }
 
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            #[cfg(feature = "touch")]
-            touch: touch::Touch::default(),
-
-            #[cfg(feature = "jvs")]
-            jvs: jvs::JVS::default(),
-
-            #[cfg(feature = "reader")]
-            reader: reader::Reader::default(),
-        }
-    }
-}
-
 impl Config {
-    pub fn init(cli: &CLI) -> Result<Self, error::Error> {
+    pub fn init(cli: &Cli) -> Result<Self, error::Error> {
         if cli.create_config {
             let config = Self::default();
             config.save(&cli.config_path)?;

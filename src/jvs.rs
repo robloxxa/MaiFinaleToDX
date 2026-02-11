@@ -3,7 +3,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::time::Duration;
-use std::{i64, io, thread};
+use std::{io, thread};
 
 use jvs_packets::jvs::{RequestPacket, ResponsePacket};
 use jvs_packets::{Packet, ReadPacket, WritePacket};
@@ -35,7 +35,7 @@ impl Cmd {
 // const UNUSED_MAPPING: c_int = -1;
 static BROADCAST: u8 = 0xFF;
 
-pub struct JVS {
+pub struct Jvs {
     pub writer: BufWriter<SerialPort>,
     pub reader: BufReader<SerialPort>,
     keyboard: Keyboard,
@@ -44,7 +44,7 @@ pub struct JVS {
     res_packet: ResponsePacket<128>,
 }
 
-impl JVS {
+impl Jvs {
     pub fn new(port_name: impl AsRef<str>, input: &Input) -> Result<Self> {
         let port = SerialPort::open(port_name.as_ref(), 115_200)?;
 
@@ -60,7 +60,7 @@ impl JVS {
         })
     }
 
-    /// Writes a request packet to JVS Com port and immediately wait for a response, muting self.res_packet
+    /// Writes a request packet to Jvs Com port and immediately wait for a response, muting self.res_packet
     fn cmd(&mut self, dest: u8, data: &[u8]) -> io::Result<()> {
         self.writer
             .write_packet(self.req_packet.set_dest(dest).set_data(data))?;
@@ -93,7 +93,7 @@ impl JVS {
             .set_write_timeout(Duration::from_secs(5))?;
 
         for c in 0..retry_count {
-            info!("Trying to initialize JVS. Attempt {}", c + 1);
+            info!("Trying to initialize Jvs. Attempt {}", c + 1);
             match self.init(board) {
                 Ok(()) => {
                     self.reader
@@ -105,10 +105,10 @@ impl JVS {
                     return Ok(());
                 }
                 Err(e) if e.kind() == io::ErrorKind::TimedOut => {
-                    error!("JVS initialization timed out")
+                    error!("Jvs initialization timed out")
                 }
                 Err(e) => {
-                    error!("JVS initialization failed: {}", e);
+                    error!("Jvs initialization failed: {}", e);
                 }
             }
         }
@@ -118,46 +118,46 @@ impl JVS {
     }
 
     pub fn init(&mut self, board: u8) -> io::Result<()> {
-        info!("JVS: Initializing");
+        info!("Jvs: Initializing");
         self.reset()?;
 
-        info!("JVS: Reset sent");
+        info!("Jvs: Reset sent");
         // Wait a little before sending the next command
         thread::sleep(Duration::from_millis(500));
 
         self.cmd(BROADCAST, &[Cmd::ASSIGN_ADDRESS, board])?;
-        info!("JVS: Assigned address {}", board,);
+        info!("Jvs: Assigned address {}", board,);
 
         self.cmd(board, &[Cmd::IDENTIFY])?;
         info!(
-            "JVS: Board Info: {}",
+            "Jvs: Board Info: {}",
             std::str::from_utf8(self.res_packet.data())
                 .map_err(|_| io::Error::from(io::ErrorKind::Other))?
         );
 
         self.cmd(board, &[Cmd::COMMAND_REVISION])?;
         info!(
-            "JVS: Command Version Revision: REV{}.{}",
+            "Jvs: Command Version Revision: REV{}.{}",
             self.res_packet.data()[0] / 10,
             self.res_packet.data()[0] % 10
         );
 
         self.cmd(board, &[Cmd::JVS_VERSION])?;
         info!(
-            "JVS: JVS Version: {}.{}",
+            "Jvs: Jvs Version: {}.{}",
             self.res_packet.data()[0] / 10,
             self.res_packet.data()[0] % 10
         );
 
         self.cmd(board, &[Cmd::COMMS_VERSION])?;
         info!(
-            "JVS: Communications Version: {}.{}",
+            "Jvs: Communications Version: {}.{}",
             self.res_packet.data()[0] / 10,
             self.res_packet.data()[0] % 10
         );
 
         self.cmd(board, &[Cmd::CAPABILITIES])?;
-        info!("JVS: Feature check: {:02X?}", self.res_packet.data());
+        info!("Jvs: Feature check: {:02X?}", self.res_packet.data());
 
         Ok(())
     }
@@ -215,19 +215,19 @@ impl JVS {
 }
 
 pub fn setup(
-    settings: &config::JVS,
+    settings: &config::Jvs,
     handles: &mut Vec<JoinHandle<Result<()>>>,
-    running: Arc<AtomicBool>,
+    should_exit: Arc<AtomicBool>,
 ) -> Result<()> {
-    let mut jvs = JVS::new(&settings.port, &settings.input)?;
+    let mut jvs = Jvs::new(&settings.port, &settings.input)?;
 
-    jvs.try_init(settings.init_retry_count.unwrap_or_else(|| i64::MAX), 1)?;
+    jvs.try_init(settings.init_retry_count.unwrap_or(i64::MAX), 1)?;
 
     handles.push(
         thread::Builder::new()
-            .name("Finale JVS Thread".to_string())
+            .name("Finale Jvs Thread".to_string())
             .spawn(move || -> Result<()> {
-                while !running.load(Ordering::Acquire) {
+                while !should_exit.load(Ordering::Acquire) {
                     match jvs.read_digital(1) {
                         Ok(()) => {}
                         Err(ref e) if e.kind() == io::ErrorKind::TimedOut => {}

@@ -35,7 +35,7 @@ pub struct Area {
 impl Area {
     pub const fn new(name: &'static str, pos: (usize, u8)) -> Self {
         Area {
-            name: name,
+            name,
             position: pos.0,
             bit: pos.1,
         }
@@ -46,7 +46,7 @@ impl TryFrom<&str> for Area {
     type Error = error::Error;
 
     fn try_from(value: &str) -> Result<Self, Self::Error> {
-        match value.as_ref() {
+        match value {
             A1_NAME => Ok(A1),
             A2_NAME => Ok(A2),
             A3_NAME => Ok(A3),
@@ -64,7 +64,7 @@ impl TryFrom<&str> for Area {
             B7_NAME => Ok(B7),
             B8_NAME => Ok(B8),
             C1_NAME => Ok(C1),
-            v => Err(error::Error::FinaleAreaError(format!(
+            v => Err(error::Error::FinaleArea(format!(
                 "Invalid Finale Area Name: {}",
                 v
             ))),

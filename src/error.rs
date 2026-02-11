@@ -10,16 +10,16 @@ pub enum Error {
     Io(#[from] io::Error),
 
     #[error("logger error: {0}")]
-    LoggerError(#[from] FlexiLoggerError),
+    Logger(#[from] FlexiLoggerError),
 
     #[error("toml serialization error: {0}")]
-    TomlSerializationError(#[from] toml_edit::ser::Error),
+    TomlSerialization(#[from] toml_edit::ser::Error),
 
     #[error("toml deserialization error: {0}")]
-    TomlDeserializationError(#[from] toml_edit::de::Error),
+    TomlDeserialization(#[from] toml_edit::de::Error),
 
     #[error("finale area error: {0}")]
-    FinaleAreaError(String),
+    FinaleArea(String),
 
     #[error(transparent)]
     Other(#[from] anyhow::Error),

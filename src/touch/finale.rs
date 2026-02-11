@@ -236,7 +236,7 @@ impl Finale {
         let thread = thread::Builder::new()
             .name("Finale Touch Thread".to_owned())
             .spawn(move || {
-                while !exit_sig.load(Ordering::Relaxed) {
+                while !exit_sig.load(Ordering::Acquire) {
                     finale_touch.receive()?;
                 }
                 finale_touch.port.write_all(HALT)?;
@@ -302,7 +302,7 @@ impl From<config::dx::Area> for TouchArea {
     fn from(area: config::dx::Area) -> Self {
         TouchArea {
             index: area.position,
-            bit_position: area.bit as u8,
+            bit_position: area.bit,
             last_activation: None,
             deactivate_after_ms: area.deactivate_after_ms,
             reactivate_after_ms: area.reactivate_after_ms,
@@ -394,13 +394,11 @@ impl FinaleAreaMapping {
 
         for (i, &bit) in buf.iter().enumerate() {
             for pos in 0..5usize {
-                self.mapping[i][pos].iter_mut().for_each(|a| {
-                    if !a.is_active(bit, pos) {
-                        return;
+                for area in &mut self.mapping[i][pos] {
+                    if area.is_active(bit, pos) {
+                        write_buffer[area.index] |= area.bit_position;
                     }
-
-                    write_buffer[a.index] |= a.bit_position;
-                });
+                }
             }
         }
 
