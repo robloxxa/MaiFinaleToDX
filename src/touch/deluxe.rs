@@ -1,50 +1,19 @@
 use anyhow::Context;
-use serial2::SerialPort;
+use std::io::Read;
 
 use crate::error::Result;
+use crate::port::{Port, RealPort};
 use log::{error, warn};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread;
 use std::thread::JoinHandle;
 use std::time::Duration;
-// pub struct MessageCmd {
-//     pub player_num: usize,
-//     pub cmd: MasterCommand,
-// }
-
-// #[repr(u8)]
-// #[derive(Debug)]
-// pub enum MasterCommand {
-//     // { R S E T } Tells Touchscreen to reset, have no idea what to do with it
-//     Reset = b'E',
-//     // { H A L T } Tells Touchscreen to stop sending data
-//     Halt = b'L',
-//     // { S T A T } Tells Touchscreen to start sending data
-//     Stat = b'A',
-//     // { L/R TouchArea k Threshold }
-//     Sens(u8, u8, u8) = b'k',
-//     // There is also Ratio, but its useless on an actual cabinet (todo: verify this)
-//     Ratio(u8, u8, u8) = b'r',
-//     Unknown,
-// }
-
-// impl MasterCommand {
-//     pub fn from_buf(buf: &[u8]) -> MasterCommand {
-//         match buf[3] {
-//             b'E' => MasterCommand::Reset,
-//             b'L' => MasterCommand::Halt,
-//             b'A' => MasterCommand::Stat,
-//             b'k' => MasterCommand::Sens(buf[1], buf[2], buf[4]),
-//             b'r' => MasterCommand::Ratio(buf[1], buf[2], buf[4]),
-//             _ => MasterCommand::Unknown,
-//         }
-//     }
-// }
+const MAX_TIMEOUT_COUNT: u8 = 5;
 
 pub struct Deluxe {
     num: u8,
-    pub port: SerialPort,
+    pub port: Box<dyn Port>,
     pub active: Arc<AtomicBool>,
 
     timeout_count: u8,
@@ -53,7 +22,7 @@ pub struct Deluxe {
 impl Deluxe {
     pub fn new(port_name: impl Into<String>, num: u8) -> Result<Self> {
         let port_name = port_name.into();
-        let mut port = SerialPort::open(&port_name, 115_200).map_err(|e| {
+        let mut port = RealPort::open(&port_name, 115_200).map_err(|e| {
             error!(
                 "Cannot open serial port for Deluxe P{} Touchscreen: {}",
                 num, e
@@ -68,7 +37,7 @@ impl Deluxe {
 
         Ok(Self {
             num,
-            port,
+            port: Box::new(port),
             active: Arc::new(AtomicBool::new(false)),
             timeout_count: 0,
         })
@@ -100,7 +69,7 @@ impl Deluxe {
                         self.send(&read_buffer)?;
                     }
                     _ => {
-                        panic!("Unknown command: {:?}", &read_buffer);
+                        warn!("Unknown command: {:?}", &read_buffer);
                     }
                 }
                 Ok(())
@@ -121,7 +90,7 @@ impl Deluxe {
 
                 self.timeout_count += 1;
 
-                if self.timeout_count > 5 {
+                if self.timeout_count > MAX_TIMEOUT_COUNT {
                     warn!(
                         "Too much timeouts for Deluxe P{}, please restart your game",
                         self.num

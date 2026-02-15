@@ -1,19 +1,25 @@
 use crate::config::{Cli, Config};
 use crate::error::Result;
+use crate::runtime::ModuleRuntime;
+use crate::state::SharedState;
 use clap::Parser;
 use flexi_logger::{colored_opt_format, opt_format, FileSpec, Logger};
 use log::{error, info, warn};
 
 use anyhow::Context;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
-use std::thread::JoinHandle;
+use std::sync::atomic::Ordering;
 use winapi::um::timeapi;
 
 mod config;
 mod error;
 mod helper_funcs;
 mod keyboard;
+mod port;
+mod runtime;
+mod state;
+
+#[cfg(feature = "gui")]
+mod gui;
 
 #[cfg(feature = "touch")]
 mod touch;
@@ -29,14 +35,16 @@ fn main() {
         error!("Error: {}", e);
     }
 
-    use std::process::Command;
-    let _ = Command::new("cmd.exe").arg("/c").arg("pause").status();
+    #[cfg(not(feature = "gui"))]
+    {
+        use std::process::Command;
+        let _ = Command::new("cmd.exe").arg("/c").arg("pause").status();
+    }
 }
 
 fn setup() -> Result<()> {
     let mut cli = Cli::parse();
 
-    // Set timer resolution to lower value possible. This is done for increasing reading speed of COM ports.
     unsafe {
         let result = timeapi::timeBeginPeriod(1);
         if result != 0 {
@@ -60,49 +68,29 @@ fn setup() -> Result<()> {
 
     let config = Config::init(&cli)?;
 
-    let exit_sig = Arc::new(AtomicBool::new(false));
+    let shared_state = SharedState::new();
+    let mut runtime = ModuleRuntime::new(config, shared_state);
+    runtime.start_all();
 
-    let handles = init_handles(&config, &exit_sig)?;
+    #[cfg(feature = "gui")]
+    if !cli.no_gui {
+        return gui::run(runtime);
+    }
+
+    run_cli(runtime)
+}
+
+fn run_cli(runtime: ModuleRuntime) -> Result<()> {
+    let exit_signals = runtime.exit_signals();
 
     ctrlc::set_handler(move || {
         info!("Got CTRL+C, exiting...");
-        exit_sig.store(true, Ordering::Release);
+        for sig in &exit_signals {
+            sig.store(true, Ordering::Release);
+        }
     })
     .context("Failed to setup CTRL+C handler")?;
 
-    for handle in handles.into_iter() {
-        handle.join().unwrap()?;
-    }
-
+    runtime.join_all();
     Ok(())
-}
-
-fn init_handles(cfg: &Config, exit_sig: &Arc<AtomicBool>) -> Result<Vec<JoinHandle<Result<()>>>> {
-    let mut handles = Vec::with_capacity(4);
-
-    #[cfg(feature = "touch")]
-    if cfg.touch.enabled {
-        if let Err(e) = touch::setup(&cfg.touch, &mut handles, exit_sig.clone()) {
-            error!("Failed to initialize Touch module: {}", e);
-            error!("Touch functionality will be disabled");
-        }
-    };
-
-    #[cfg(feature = "jvs")]
-    if cfg.jvs.enabled {
-        if let Err(e) = jvs::setup(&cfg.jvs, &mut handles, exit_sig.clone()) {
-            error!("Failed to initialize JVS module: {}", e);
-            error!("JVS functionality will be disabled");
-        }
-    }
-
-    #[cfg(feature = "reader")]
-    if cfg.reader.enabled {
-        if let Err(e) = card_reader::setup(&cfg.reader, &mut handles, exit_sig.clone()) {
-            error!("Failed to initialize Card Reader module: {}", e);
-            error!("Card Reader functionality will be disabled");
-        }
-    }
-
-    Ok(handles)
 }

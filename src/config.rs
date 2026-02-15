@@ -38,6 +38,11 @@ pub struct Cli {
     #[arg(long, short = 'c', default_value = "false", action=ArgAction::SetTrue)]
     #[serde(skip)]
     pub create_config: bool,
+
+    #[cfg(feature = "gui")]
+    #[arg(long, default_value = "false", action=ArgAction::SetTrue)]
+    #[serde(skip)]
+    pub no_gui: bool,
 }
 
 #[derive(Deserialize, Serialize, Debug, Default)]

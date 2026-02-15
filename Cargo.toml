@@ -11,15 +11,15 @@ opt-level = "z"  # Optimize for size.
 lto = true
 
 [features]
-default = ["touch", "reader", "jvs"]
+default = ["touch", "reader", "jvs", "gui"]
 touch = []
 reader = []
 jvs = []
+gui = ["dep:eframe"]
 
 [dependencies]
 clap = { version = "4.3.5", features = ["derive"] }
-toml = "0.8.9"
-winapi = { version = "0.3.9", features = ["winuser", "timeapi", "minwindef"] }
+winapi = { version = "0.3.9", features = ["winuser", "timeapi", "minwindef", "wincon"] }
 serde = { version = "1.0.158", features = ["derive"] }
 flexi_logger = "0.29.1"
 log = "0.4.17"
@@ -31,3 +31,5 @@ thiserror = "1.0.64"
 serde_with = "3.16.1"
 toml_edit = { version = "0.24.0", features = ["serde"] }
 arrayvec = { version = "0.7.6", features = ["serde"] }
+maifinale_macros = { path = "macros" }
+eframe = { version = "0.31", optional = true, default-features = false, features = ["default_fonts", "glow"] }

@@ -7,6 +7,7 @@
 
 use crate::config;
 use crate::error::Result;
+use crate::state::SharedState;
 use crate::touch::deluxe::*;
 use crate::touch::finale::*;
 use log::info;
@@ -18,15 +19,14 @@ mod deluxe;
 mod finale;
 pub(crate) mod packet;
 
-// pub const RSET: &[u8] = "{RSET}".as_bytes();
 pub const HALT: &[u8] = "{HALT}".as_bytes();
 pub const STAT: &[u8] = "{STAT}".as_bytes();
 
 pub fn setup(
     config: &config::Touch,
-    handles: &mut Vec<JoinHandle<Result<()>>>,
     exit_sig: Arc<AtomicBool>,
-) -> Result<()> {
+    _shared_state: Option<SharedState>,
+) -> Result<Vec<JoinHandle<Result<()>>>> {
     info!("Initializing Touchscreen");
 
     let dx_p1 = Deluxe::new(&config.dx_p1_port, 1).ok();
@@ -40,25 +40,18 @@ pub fn setup(
 
     finale.try_init(config.init_retry_count.unwrap_or(i64::MAX))?;
 
-    let finale_thread = Finale::spawn_thread(finale, exit_sig.clone())?;
+    let mut handles = Vec::new();
 
-    let dx_p1_thread = dx_p1
-        .map(|x| Deluxe::spawn_thread(x, exit_sig.clone()))
-        .transpose()?;
-    let dx_p2_thread = dx_p2
-        .map(|x| Deluxe::spawn_thread(x, exit_sig.clone()))
-        .transpose()?;
+    handles.push(Finale::spawn_thread(finale, exit_sig.clone())?);
 
-    handles.push(finale_thread);
-
-    if let Some(t) = dx_p1_thread {
-        handles.push(t);
+    if let Some(dx) = dx_p1 {
+        handles.push(Deluxe::spawn_thread(dx, exit_sig.clone())?);
     }
-    if let Some(t) = dx_p2_thread {
-        handles.push(t);
+    if let Some(dx) = dx_p2 {
+        handles.push(Deluxe::spawn_thread(dx, exit_sig.clone())?);
     }
 
     info!("Touchscreen is ready. Good luck touchin'");
 
-    Ok(())
+    Ok(handles)
 }

@@ -8,13 +8,13 @@ use std::{io, thread};
 use jvs_packets::jvs::{RequestPacket, ResponsePacket};
 use jvs_packets::{Packet, ReadPacket, WritePacket};
 use log::{error, info};
-use serial2::SerialPort;
 
 use crate::config;
 use crate::config::Input;
 use crate::error::Result;
 use crate::helper_funcs::bit_read;
 use crate::keyboard::Keyboard;
+use crate::port::{Port, RealPort};
 
 #[non_exhaustive]
 pub struct Cmd;
@@ -32,12 +32,11 @@ impl Cmd {
     pub const READ_DIGITAL: u8 = 0x20;
 }
 
-// const UNUSED_MAPPING: c_int = -1;
 static BROADCAST: u8 = 0xFF;
 
 pub struct Jvs {
-    pub writer: BufWriter<SerialPort>,
-    pub reader: BufReader<SerialPort>,
+    pub writer: BufWriter<Box<dyn Port>>,
+    pub reader: BufReader<Box<dyn Port>>,
     keyboard: Keyboard,
     input: Input,
     req_packet: RequestPacket<16>,
@@ -46,13 +45,16 @@ pub struct Jvs {
 
 impl Jvs {
     pub fn new(port_name: impl AsRef<str>, input: &Input) -> Result<Self> {
-        let port = SerialPort::open(port_name.as_ref(), 115_200)?;
+        let port = RealPort::open(port_name.as_ref(), 115_200)?;
 
         port.discard_buffers()?;
 
+        let writer_port = port.try_clone()?;
+        let reader_port = port.try_clone()?;
+
         Ok(Self {
-            writer: BufWriter::with_capacity(512, port.try_clone()?),
-            reader: BufReader::with_capacity(512, port.try_clone()?),
+            writer: BufWriter::with_capacity(512, writer_port),
+            reader: BufReader::with_capacity(512, reader_port),
             keyboard: Keyboard::new(),
             input: input.clone(),
             req_packet: RequestPacket::default(),
@@ -216,29 +218,27 @@ impl Jvs {
 
 pub fn setup(
     settings: &config::Jvs,
-    handles: &mut Vec<JoinHandle<Result<()>>>,
     should_exit: Arc<AtomicBool>,
-) -> Result<()> {
+    _shared_state: Option<crate::state::SharedState>,
+) -> Result<Vec<JoinHandle<Result<()>>>> {
     let mut jvs = Jvs::new(&settings.port, &settings.input)?;
 
     jvs.try_init(settings.init_retry_count.unwrap_or(i64::MAX), 1)?;
 
-    handles.push(
-        thread::Builder::new()
-            .name("Finale Jvs Thread".to_string())
-            .spawn(move || -> Result<()> {
-                while !should_exit.load(Ordering::Acquire) {
-                    match jvs.read_digital(1) {
-                        Ok(()) => {}
-                        Err(ref e) if e.kind() == io::ErrorKind::TimedOut => {}
-                        Err(e) => {
-                            error!("Failed to read digital. Error: {}", e);
-                        }
+    let handle = thread::Builder::new()
+        .name("Finale Jvs Thread".to_string())
+        .spawn(move || -> Result<()> {
+            while !should_exit.load(Ordering::Acquire) {
+                match jvs.read_digital(1) {
+                    Ok(()) => {}
+                    Err(ref e) if e.kind() == io::ErrorKind::TimedOut => {}
+                    Err(e) => {
+                        error!("Failed to read digital. Error: {}", e);
                     }
                 }
-                Ok(())
-            })?,
-    );
+            }
+            Ok(())
+        })?;
 
-    Ok(())
+    Ok(vec![handle])
 }

@@ -1,12 +1,12 @@
 use crate::config::{self};
 use crate::error::Result;
 use crate::keyboard::Keyboard;
+use crate::port::{Port, RealPort};
 use anyhow::{anyhow, Context};
 use arrayvec::ArrayVec;
 use jvs_packets::jvs_modified::{ModifiedPacket, RequestPacket, ResponsePacket};
 use jvs_packets::{Packet, ReadPacket, WritePacket};
 use log::{error, info};
-use serial2::SerialPort;
 use std::fs::{File, OpenOptions};
 use std::io::Write;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -42,7 +42,7 @@ impl Cmd {
 }
 
 pub struct CardReader {
-    port: SerialPort,
+    port: Box<dyn Port>,
 
     keyboard: Keyboard,
 
@@ -55,12 +55,12 @@ pub struct CardReader {
 
 impl CardReader {
     pub fn new(cfg: &config::Reader) -> Result<Self> {
-        let mut finale_port = SerialPort::open(&cfg.port, 38_400)?;
+        let mut finale_port = RealPort::open(&cfg.port, 38_400)?;
 
         finale_port.set_read_timeout(Duration::from_millis(5000))?;
 
         Ok(Self {
-            port: finale_port,
+            port: Box::new(finale_port),
             keyboard: Keyboard::new(),
             reader_file: OpenOptions::new().read(true).write(true).open(
                 cfg.device_file
@@ -192,26 +192,24 @@ impl Drop for CardReader {
 
 pub fn setup(
     cfg: &config::reader::Reader,
-    handles: &mut Vec<JoinHandle<Result<()>>>,
     should_exit: Arc<AtomicBool>,
-) -> Result<()> {
+    _shared_state: Option<crate::state::SharedState>,
+) -> Result<Vec<JoinHandle<Result<()>>>> {
     let mut reader = CardReader::new(cfg)?;
 
     reader.try_init(cfg.init_retry_count.unwrap_or(i64::MAX))?;
 
-    handles.push(
-        thread::Builder::new()
-            .name("Card Reader Thread".to_string())
-            .spawn(move || -> Result<()> {
-                while !should_exit.load(Ordering::Acquire) {
-                    let _ = reader.poll();
-                    thread::sleep(Duration::from_millis(250));
-                }
+    let handle = thread::Builder::new()
+        .name("Card Reader Thread".to_string())
+        .spawn(move || -> Result<()> {
+            while !should_exit.load(Ordering::Acquire) {
+                let _ = reader.poll();
+                thread::sleep(Duration::from_millis(250));
+            }
 
-                Ok(())
-            })
-            .with_context(|| "Card Reader thread failed to spawn".to_string())?,
-    );
+            Ok(())
+        })
+        .with_context(|| "Card Reader thread failed to spawn".to_string())?;
 
-    Ok(())
+    Ok(vec![handle])
 }

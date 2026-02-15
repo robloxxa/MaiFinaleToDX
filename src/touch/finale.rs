@@ -1,18 +1,19 @@
 use crate::config::{self, touch};
 use crate::error::Result;
+use crate::port::{Port, RealPort};
 use crate::touch::packet::finale_slave::*;
 use crate::touch::{HALT, STAT};
 use crate::{helper_funcs::bit_read, touch::deluxe::Deluxe};
 use anyhow::anyhow;
 use arrayvec::ArrayVec;
 use log::{debug, error, info};
-use serial2::SerialPort;
 use std::collections::BTreeMap;
+use std::io::{self, Read, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
-use std::{io, thread};
+use std::thread;
 
 pub struct Finale {
     parser: Parser,
@@ -23,7 +24,7 @@ pub struct Finale {
     p1_mapping: FinaleAreaMapping,
     p2_mapping: FinaleAreaMapping,
 
-    pub port: SerialPort,
+    pub port: Box<dyn Port>,
     pub dx_p1: Option<Deluxe>,
     pub dx_p2: Option<Deluxe>,
 }
@@ -31,7 +32,7 @@ pub struct Finale {
 impl Finale {
     pub fn new(cfg: config::Touch, dx_p1: Option<Deluxe>, dx_p2: Option<Deluxe>) -> Result<Self> {
         Ok(Self {
-            port: SerialPort::open(&cfg.finale_port, 9600)?,
+            port: Box::new(RealPort::open(&cfg.finale_port, 9600)?),
             parser: Parser::new(),
             buf: [0u8; 14],
 
@@ -83,51 +84,28 @@ impl Finale {
     }
 
     fn init_threshold(&mut self) -> Result<()> {
-        let p1 = self.p1_threshold.clone();
-        let p2 = self.p2_threshold.clone();
+        self.init_threshold_for_panel(b'L', &self.p1_threshold.clone())?;
+        self.init_threshold_for_panel(b'R', &self.p2_threshold.clone())?;
+        Ok(())
+    }
 
-        info!("Initializing L");
-        for (area, threshold) in p1.iter() {
-            match self.get_threshold(b'L', *area) {
-                Ok(_) => (),
-                Err(e) => {
-                    error!(
-                        "Failed to get threshold from panel {:?} area {:?}: {}",
-                        b'L', area, e
-                    );
-                    return Err(e.into());
-                }
+    fn init_threshold_for_panel(&mut self, panel: u8, thresholds: &ThresholdInfo) -> Result<()> {
+        info!("Initializing panel {}", panel as char);
+        for (area, threshold) in thresholds.iter() {
+            self.get_threshold(panel, *area).map_err(|e| {
+                error!(
+                    "Failed to get threshold from panel {} area {:?}: {}",
+                    panel as char, area, e
+                );
+                e
+            })?;
+
+            if let Packet::Data(_) = self.receive_once()? {
+                self.set_threshold(panel, *area, *threshold)?;
             }
 
-            if let Packet::Data(_) = self.recieve_once()? {
-                self.set_threshold(b'L', *area, *threshold)?;
-            }
-
-            // TODO: maybe show in console
-            let _ = self.recieve_once()?;
+            let _ = self.receive_once()?;
         }
-
-        info!("Initializing R");
-        for (area, threshold) in p2.iter() {
-            match self.get_threshold(b'R', *area) {
-                Ok(_) => (),
-                Err(e) => {
-                    error!(
-                        "Failed to get threshold from panel {:?} area {:?}: {}",
-                        b'R', area, e
-                    );
-                    return Err(e.into());
-                }
-            }
-
-            if let Packet::Data(_) = self.recieve_once()? {
-                self.set_threshold(b'R', *area, *threshold)?;
-            }
-
-            // TODO: maybe show in console
-            let _ = self.recieve_once()?;
-        }
-
         Ok(())
     }
 
@@ -135,11 +113,11 @@ impl Finale {
         self.send(&[b'{', panel, area, b't', b'h', b'}'])
     }
 
-    fn set_threshold(&self, panel: u8, area: u8, threshold: u8) -> io::Result<()> {
+    fn set_threshold(&mut self, panel: u8, area: u8, threshold: u8) -> io::Result<()> {
         self.send(&[b'{', panel, area, b'k', threshold, b'}'])
     }
 
-    pub fn send(&self, buf: &[u8]) -> io::Result<()> {
+    pub fn send(&mut self, buf: &[u8]) -> io::Result<()> {
         debug!(
             "Finale Touch: Sending {}",
             buf.iter().map(|&u| format!("{}", u)).collect::<String>()
@@ -185,11 +163,12 @@ impl Finale {
         Ok(())
     }
 
-    pub fn recieve_once(&mut self) -> Result<Packet> {
+    pub fn receive_once(&mut self) -> Result<Packet> {
         let mut buf = [0u8; 1];
         let mut attempt = 0;
 
-        while attempt < 10 {
+        const MAX_RECEIVE_ATTEMPTS: usize = 10;
+        while attempt < MAX_RECEIVE_ATTEMPTS {
             match self.port.read_exact(&mut buf) {
                 Ok(_) => {}
                 Err(e) if e.kind() == io::ErrorKind::TimedOut => {
@@ -348,36 +327,7 @@ struct FinaleAreaMapping {
 impl FinaleAreaMapping {
     pub fn new() -> Self {
         FinaleAreaMapping {
-            mapping: [
-                [
-                    ArrayVec::new(),
-                    ArrayVec::new(),
-                    ArrayVec::new(),
-                    ArrayVec::new(),
-                    ArrayVec::new(),
-                ],
-                [
-                    ArrayVec::new(),
-                    ArrayVec::new(),
-                    ArrayVec::new(),
-                    ArrayVec::new(),
-                    ArrayVec::new(),
-                ],
-                [
-                    ArrayVec::new(),
-                    ArrayVec::new(),
-                    ArrayVec::new(),
-                    ArrayVec::new(),
-                    ArrayVec::new(),
-                ],
-                [
-                    ArrayVec::new(),
-                    ArrayVec::new(),
-                    ArrayVec::new(),
-                    ArrayVec::new(),
-                    ArrayVec::new(),
-                ],
-            ],
+            mapping: Default::default()
         }
     }
 
