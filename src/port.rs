@@ -103,6 +103,10 @@ impl MockPort {
 impl io::Read for MockPort {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         let timeout = *self.inner.read_timeout.lock().unwrap();
+        // Clamp short timeouts to avoid busy-spinning in emulation mode.
+        // Real data arrives via push_read_data + condvar notify, so this
+        // only affects how long we sleep when the buffer is empty.
+        let effective_timeout = timeout.max(Duration::from_millis(10));
         let start = Instant::now();
 
         let mut read_buf = self.inner.read_buf.lock().unwrap();
@@ -120,7 +124,7 @@ impl io::Read for MockPort {
                 return Err(io::Error::new(io::ErrorKind::TimedOut, "mock read timeout"));
             }
 
-            let remaining = timeout.saturating_sub(start.elapsed());
+            let remaining = effective_timeout.saturating_sub(start.elapsed());
             if remaining.is_zero() {
                 return Err(io::Error::new(io::ErrorKind::TimedOut, "mock read timeout"));
             }

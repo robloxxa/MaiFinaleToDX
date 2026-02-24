@@ -1,7 +1,7 @@
 use arrayvec::ArrayVec;
 use serde::{Deserialize, Serialize};
 
-#[derive(Deserialize, Serialize, Debug)]
+#[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct Reader {
     /// Enable NFC reader feature
     pub enabled: bool,

@@ -3,8 +3,8 @@ use crate::error::Result;
 use crate::runtime::ModuleRuntime;
 use crate::state::SharedState;
 use clap::Parser;
-use flexi_logger::{colored_opt_format, opt_format, FileSpec, Logger};
-use log::{error, info, warn};
+use tracing::{error, info, warn};
+use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
 use anyhow::Context;
 use std::sync::atomic::Ordering;
@@ -45,26 +45,39 @@ fn main() {
 fn setup() -> Result<()> {
     let mut cli = Cli::parse();
 
+    let log_level = cli.log_level.take().unwrap_or_else(|| "info".to_string());
+    let filter = EnvFilter::try_new(&log_level)
+        .with_context(|| format!("Invalid log level: {}", log_level))?;
+
+    let (log_to_file, _guard) = if cli.log_to_file {
+        let file_appender = tracing_appender::rolling::daily("./logs", "log");
+        let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
+        (
+            Some(fmt::layer().with_ansi(false).with_writer(non_blocking)),
+            Some(guard),
+        )
+    } else {
+        (None, None)
+    };
+
+    tracing_subscriber::registry()
+        .with(filter)
+        .with(
+            fmt::layer()
+                .with_ansi(true)
+                .with_thread_names(true)
+                .pretty(),
+        )
+        .with(log_to_file)
+        .init();
+
+    // SAFETY: Sets Windows timer resolution to 1ms for better COM port timing
     unsafe {
         let result = timeapi::timeBeginPeriod(1);
         if result != 0 {
             warn!("Failed to set timer resolution to 1ms (error code: {}). This may affect COM port performance.", result);
         }
     }
-
-    let log_level = cli.log_level.take().unwrap_or_else(|| "info".to_string());
-
-    let mut logger = Logger::try_with_str(log_level)?.format(colored_opt_format);
-
-    if cli.log_to_file {
-        let file_spec = FileSpec::default().directory("./logs");
-        logger = logger
-            .format_for_files(opt_format)
-            .log_to_file(file_spec)
-            .duplicate_to_stderr(flexi_logger::Duplicate::All);
-    }
-
-    logger.start()?;
 
     let config = Config::init(&cli)?;
 

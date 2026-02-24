@@ -3,31 +3,32 @@ use toml_edit::{
     Item, Value,
 };
 
+const MAX_INLINE_FIELDS: usize = 3;
+
 pub struct FormatVisit;
 
 impl VisitMut for FormatVisit {
     fn visit_table_like_kv_mut(&mut self, key: toml_edit::KeyMut<'_>, node: &mut Item) {
         into_table(node);
-        if matches!(key.get(), "p1_dx_touch_mapping" | "p2_dx_touch_mapping") {
-            if let Item::Table(table) = node {
-                table.iter_mut().for_each(|(_, v)| {
-                    into_inline_table(v);
-                })
-            }
 
-            return;
+        if let Item::Table(table) = node {
+            if is_small_leaf(table) {
+                let mut inline = table.clone().into_inline_table();
+                inline.fmt();
+                *node = Item::Value(Value::InlineTable(inline));
+                return;
+            }
         }
 
         visit_table_like_kv_mut(self, key, node);
     }
 }
 
-fn into_inline_table(item: &mut Item) {
-    if let Item::Table(table) = item {
-        let mut table = table.clone().into_inline_table();
-        table.fmt();
-        *item = toml_edit::Item::Value(Value::InlineTable(table));
-    }
+fn is_small_leaf(table: &toml_edit::Table) -> bool {
+    table.len() <= MAX_INLINE_FIELDS
+        && table
+            .iter()
+            .all(|(_, v)| !v.is_table() && !v.is_array_of_tables() && !v.is_inline_table())
 }
 
 fn into_table(item: &mut Item) {

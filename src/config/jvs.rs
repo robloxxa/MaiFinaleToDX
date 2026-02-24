@@ -25,7 +25,7 @@ const P2_BTN6_DEFAULT: c_int = VK_NUMPAD1;
 const P2_BTN7_DEFAULT: c_int = VK_NUMPAD4;
 const P2_BTN8_DEFAULT: c_int = VK_NUMPAD7;
 
-#[derive(Deserialize, Serialize, Debug)]
+#[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct Jvs {
     /// Enable Jvs feature
     ///

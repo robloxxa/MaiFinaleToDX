@@ -1,86 +1,49 @@
-use crate::config::{self, touch};
+use crate::config::touch::finale::{FinaleTouch, Threshold};
+use crate::config::touch::TouchMode;
 use crate::error::Result;
-use crate::port::{Port, RealPort};
+use crate::port::{MockPort, Port, RealPort};
+use crate::runtime::Module;
+use crate::state::SharedState;
 use crate::touch::packet::finale_slave::*;
-use crate::touch::{HALT, STAT};
-use crate::{helper_funcs::bit_read, touch::deluxe::Deluxe};
+use crate::touch::{AtomicTouchInput, TouchInput, HALT, STAT};
 use anyhow::anyhow;
-use arrayvec::ArrayVec;
-use log::{debug, error, info};
+use tracing::{debug, error, info};
 use std::collections::BTreeMap;
 use std::io::{self, Read, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread::JoinHandle;
-use std::time::{Duration, Instant};
-use std::thread;
+use std::time::Duration;
 
 pub struct Finale {
     parser: Parser,
     buf: [u8; 14],
     p1_threshold: ThresholdInfo,
     p2_threshold: ThresholdInfo,
+    retry_count: i64,
+    exit_sig: Arc<AtomicBool>,
 
-    p1_mapping: FinaleAreaMapping,
-    p2_mapping: FinaleAreaMapping,
+    input: Box<dyn TouchInput>,
 
     pub port: Box<dyn Port>,
-    pub dx_p1: Option<Deluxe>,
-    pub dx_p2: Option<Deluxe>,
+    pub emu_handle: Option<JoinHandle<Result<()>>>,
 }
 
 impl Finale {
-    pub fn new(cfg: config::Touch, dx_p1: Option<Deluxe>, dx_p2: Option<Deluxe>) -> Result<Self> {
+    pub fn new(exit_sig: Arc<AtomicBool>, cfg: FinaleTouch, input: Box<dyn TouchInput>, port: Box<dyn Port>) -> Result<Self> {
         Ok(Self {
-            port: Box::new(RealPort::open(&cfg.finale_port, 9600)?),
+            port,
             parser: Parser::new(),
             buf: [0u8; 14],
+            retry_count: cfg.init_retry_count.unwrap_or(i64::MAX),
+            exit_sig,
 
             p1_threshold: cfg.p1_threshold.into(),
             p2_threshold: cfg.p2_threshold.into(),
 
-            p1_mapping: cfg.p1_dx_touch_mapping.into(),
-            p2_mapping: cfg.p2_dx_touch_mapping.into(),
-
-            dx_p1,
-            dx_p2,
+            input,
+            emu_handle: None,
         })
-    }
-
-    pub fn try_init(&mut self, retry_count: i64) -> Result<()> {
-        self.port.set_read_timeout(Duration::from_secs(0))?;
-        self.port.set_write_timeout(Duration::from_secs(0))?;
-
-        for c in 0..retry_count {
-            info!("Trying to initialize Finale Touchscreen. Attempt {}", c + 1);
-            match self.init() {
-                Ok(()) => {
-                    return Ok(());
-                }
-                Err(crate::error::Error::Io(ref e)) if e.kind() == io::ErrorKind::TimedOut => {
-                    error!("Init timeout")
-                }
-                Err(e) => {
-                    error!("Init failed. Error: {}", e);
-                }
-            }
-        }
-
-        error!("Failed to connect to Finale Touchscreen");
-        Err(io::Error::new(io::ErrorKind::TimedOut, "Finale touchscreen timeout").into())
-    }
-
-    fn init(&mut self) -> Result<()> {
-        info!("Sending HALT packet");
-        self.halt()?;
-
-        info!("Initializing Threshold");
-        self.init_threshold()?;
-
-        info!("Sending STAT packet");
-        self.stat()?;
-
-        Ok(())
     }
 
     fn init_threshold(&mut self) -> Result<()> {
@@ -126,43 +89,6 @@ impl Finale {
         self.port.write_all(buf)
     }
 
-    pub fn receive(&mut self) -> Result<()> {
-        let n = match self.port.read(&mut self.buf) {
-            Ok(n) => n,
-            Err(ref e) if e.kind() == io::ErrorKind::TimedOut => return Ok(()),
-            Err(e) => {
-                error!("Failed to read from port: {}", e);
-                return Ok(());
-            }
-        };
-
-        let buf = &self.buf[..n];
-
-        for &b in buf {
-            match self.parser.push(b) {
-                Some(Packet::Input { p1, p2 }) => {
-                    if let Some(dx_p1) = &mut self.dx_p1 {
-                        if dx_p1.is_active() {
-                            dx_p1.send(&self.p1_mapping.convert_to_dx_buf(p1))?;
-                        }
-                    }
-
-                    if let Some(dx_p2) = &mut self.dx_p2 {
-                        if dx_p2.is_active() {
-                            dx_p2.send(&self.p2_mapping.convert_to_dx_buf(p2))?;
-                        }
-                    }
-                }
-                Some(Packet::Data(d)) => {
-                    debug!("Received data packet: {:?}", d);
-                }
-                _ => {}
-            }
-        }
-
-        Ok(())
-    }
-
     pub fn receive_once(&mut self) -> Result<Packet> {
         let mut buf = [0u8; 1];
         let mut attempt = 0;
@@ -195,35 +121,106 @@ impl Finale {
         Err(anyhow!("Could not read packet after 10 attempts").into())
     }
 
-    // Sends HALT packet to touchscreen
     pub fn halt(&mut self) -> io::Result<()> {
         self.send(HALT)?;
-
-        // Discard input buffer so there is no data if touch was working before
         self.port.discard_buffers()
     }
 
-    // Sends STAT packet to touchscreen
     pub fn stat(&mut self) -> io::Result<()> {
         self.send(STAT)
     }
 
-    pub fn spawn_thread(
-        mut finale_touch: Finale,
-        exit_sig: Arc<AtomicBool>,
-    ) -> Result<JoinHandle<Result<()>>> {
-        let thread = thread::Builder::new()
-            .name("Finale Touch Thread".to_owned())
-            .spawn(move || {
-                while !exit_sig.load(Ordering::Acquire) {
-                    finale_touch.receive()?;
-                }
-                finale_touch.port.write_all(HALT)?;
+}
 
+impl Module for Finale {
+    fn init(&mut self) -> Result<()> {
+        self.port.set_read_timeout(Duration::from_millis(500))?;
+        self.port.set_write_timeout(Duration::from_secs(0))?;
+
+        for c in 0..self.retry_count {
+            if self.exit_sig.load(Ordering::Acquire) {
+                return Err(io::Error::new(io::ErrorKind::Interrupted, "Cancelled").into());
+            }
+            info!("Trying to initialize Finale Touchscreen. Attempt {}", c + 1);
+            match (|| -> Result<()> {
+                self.halt()?;
+                self.init_threshold()?;
+                self.stat()?;
                 Ok(())
-            })?;
-        Ok(thread)
+            })() {
+                Ok(()) => {
+                    info!("Finale Touchscreen is ready");
+                    return Ok(())
+                },
+                Err(crate::error::Error::Io(ref e)) if e.kind() == io::ErrorKind::TimedOut => {
+                    error!("Init timeout")
+                }
+                Err(e) => {
+                    error!("Init failed. Error: {}", e);
+                }
+            }
+        }
+
+        error!("Failed to connect to Finale Touchscreen");
+        Err(io::Error::new(io::ErrorKind::TimedOut, "Finale touchscreen timeout").into())
     }
+
+    fn poll(&mut self) -> Result<()> {
+        let n = match self.port.read(&mut self.buf) {
+            Ok(n) => n,
+            Err(ref e) if e.kind() == io::ErrorKind::TimedOut => return Ok(()),
+            Err(e) => {
+                error!("Failed to read from port: {}", e);
+                return Ok(());
+            }
+        };
+
+        let buf = &self.buf[..n];
+
+        for &b in buf {
+            match self.parser.push(b) {
+                Some(Packet::Input { p1, p2 }) => {
+                    self.input.touch_input(p1, p2)?;
+                }
+                Some(Packet::Data(d)) => {
+                    debug!("Received data packet: {:?}", d);
+                }
+                _ => {}
+            }
+        }
+
+        Ok(())
+    }
+}
+
+pub fn setup(
+    config: FinaleTouch,
+    exit_sig: Arc<AtomicBool>,
+    shared_state: SharedState,
+) -> Result<Box<dyn Module>> {
+    let input = AtomicTouchInput::new(shared_state.touch.clone());
+
+    let (port, emu_handle): (Box<dyn Port>, Option<JoinHandle<Result<()>>>) = match config.mode {
+        TouchMode::Emulated => {
+            let mock = MockPort::new();
+            let mock_clone = mock.try_clone()?;
+            let emulator = super::finale_emulator::FinaleEmulator::new(
+                mock,
+                shared_state.touch.clone(),
+                exit_sig.clone(),
+            );
+            let handle = emulator.spawn_thread()?;
+            (mock_clone, Some(handle))
+        }
+        TouchMode::Hardware => {
+            let port = Box::new(RealPort::open(&config.port, 9600)?);
+            (port, None)
+        }
+    };
+
+    let mut finale = Finale::new(exit_sig, config, Box::new(input), port)?;
+    finale.emu_handle = emu_handle;
+    Ok(Box::new(finale))
 }
 
 impl Drop for Finale {
@@ -231,68 +228,17 @@ impl Drop for Finale {
         if let Err(e) = self.halt() {
             error!("Failed to send HALT: {e}")
         };
-    }
-}
-
-static DEFAULT_DELUXE_WRITE_BUFFER: [u8; 9] = [b'(', 0, 0, 0, 0, 0, 0, 0, b')'];
-
-#[derive(Debug)]
-struct TouchArea {
-    index: usize,
-    bit_position: u8,
-
-    last_activation: Option<Instant>,
-
-    deactivate_after_ms: Duration,
-    reactivate_after_ms: Duration,
-}
-
-impl TouchArea {
-    fn is_active(&mut self, bit: u8, pos: usize) -> bool {
-        if !bit_read(bit, pos) {
-            self.last_activation = None;
-            return false;
-        }
-
-        if !self.deactivate_after_ms.is_zero() {
-            let elapsed = match self.last_activation {
-                Some(duration) => duration.elapsed(),
-                None => {
-                    let instant = Instant::now();
-                    self.last_activation = Some(instant);
-                    instant.elapsed()
-                }
-            };
-
-            if !self.reactivate_after_ms.is_zero() && elapsed > self.reactivate_after_ms {
-                return true;
-            }
-
-            if elapsed > self.deactivate_after_ms {
-                return false;
-            }
-        }
-
-        true
-    }
-}
-
-impl From<config::dx::Area> for TouchArea {
-    fn from(area: config::dx::Area) -> Self {
-        TouchArea {
-            index: area.position,
-            bit_position: area.bit,
-            last_activation: None,
-            deactivate_after_ms: area.deactivate_after_ms,
-            reactivate_after_ms: area.reactivate_after_ms,
+        self.input.reset();
+        if let Some(handle) = self.emu_handle.take() {
+            let _ = handle.join();
         }
     }
 }
 
 type ThresholdInfo = BTreeMap<u8, u8>;
 
-impl From<touch::Threshold> for ThresholdInfo {
-    fn from(t: touch::Threshold) -> Self {
+impl From<Threshold> for ThresholdInfo {
+    fn from(t: Threshold) -> Self {
         let mut map = BTreeMap::new();
 
         map.insert(b'A', t.a1);
@@ -316,54 +262,5 @@ impl From<touch::Threshold> for ThresholdInfo {
         map.insert(b'Q', t.c);
 
         map
-    }
-}
-
-#[derive(Debug)]
-struct FinaleAreaMapping {
-    mapping: [[ArrayVec<TouchArea, 32>; 5]; 4],
-}
-
-impl FinaleAreaMapping {
-    pub fn new() -> Self {
-        FinaleAreaMapping {
-            mapping: Default::default()
-        }
-    }
-
-    fn add_area(&mut self, area: config::dx::Area) {
-        let areas = area.activate_on.0.clone();
-
-        for finale_area in areas {
-            self.mapping[finale_area.position][finale_area.bit as usize].push(area.clone().into());
-        }
-    }
-
-    fn convert_to_dx_buf(&mut self, buf: [u8; 4]) -> [u8; 9] {
-        let mut write_buffer = DEFAULT_DELUXE_WRITE_BUFFER;
-
-        for (i, &bit) in buf.iter().enumerate() {
-            for pos in 0..5usize {
-                for area in &mut self.mapping[i][pos] {
-                    if area.is_active(bit, pos) {
-                        write_buffer[area.index] |= area.bit_position;
-                    }
-                }
-            }
-        }
-
-        write_buffer
-    }
-}
-
-impl From<config::dx::AreaMapping> for FinaleAreaMapping {
-    fn from(mapping: config::dx::AreaMapping) -> Self {
-        let mut finale_mapping = FinaleAreaMapping::new();
-
-        for area in mapping.into_values() {
-            finale_mapping.add_area(area);
-        }
-
-        finale_mapping
     }
 }

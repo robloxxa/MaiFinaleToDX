@@ -45,7 +45,7 @@ pub struct Cli {
     pub no_gui: bool,
 }
 
-#[derive(Deserialize, Serialize, Debug, Default)]
+#[derive(Deserialize, Serialize, Debug, Default, Clone)]
 pub struct Config {
     #[cfg(feature = "touch")]
     #[serde(default)]

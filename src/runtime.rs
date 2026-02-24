@@ -1,26 +1,45 @@
 use crate::config::Config;
 use crate::error::Result;
 use crate::state::{ModuleStatus, SharedState};
-use log::error;
+use std::fmt;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::thread::JoinHandle;
+use std::thread::{self, JoinHandle};
+use tracing::{error, info};
+
+pub trait Module: Send + 'static {
+    fn init(&mut self) -> Result<()> {
+        Ok(())
+    }
+
+    fn poll(&mut self) -> Result<()>;
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ModuleName {
-    Touch,
+    TouchFinale,
+    TouchDeluxe(u8),
     Jvs,
     Reader,
 }
 
 impl ModuleName {
-    pub fn as_str(&self) -> &str {
+    pub const fn as_str(&self) -> &str {
         match self {
-            ModuleName::Touch => "Touch",
+            ModuleName::TouchFinale => "Touch Finale",
+            ModuleName::TouchDeluxe(1) => "Touch Deluxe P1",
+            ModuleName::TouchDeluxe(2) => "Touch Deluxe P2",
+            ModuleName::TouchDeluxe(_) => "Touch Deluxe",
             ModuleName::Jvs => "JVS",
             ModuleName::Reader => "Card Reader",
         }
-    }   
+    }
+}
+
+impl fmt::Display for ModuleName {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
 }
 
 struct ModuleHandle {
@@ -43,10 +62,79 @@ impl ModuleRuntime {
         }
     }
 
+    fn spawn(
+        &mut self,
+        name: ModuleName,
+        create: impl FnOnce(Config, Arc<AtomicBool>, SharedState) -> Result<Box<dyn Module>>
+            + Send
+            + 'static,
+    ) {
+        let exit_sig = Arc::new(AtomicBool::new(false));
+        let config = self.config.clone();
+        let state = self.shared_state.clone();
+        let statuses = self.shared_state.statuses.clone();
+
+        statuses.set(name, ModuleStatus::Initializing);
+
+        let exit_sig_clone = exit_sig.clone();
+        let statuses_clone = statuses.clone();
+
+        let handle = thread::Builder::new()
+            .name(format!("{} Thread", name))
+            .spawn(move || {
+                let result = (|| -> Result<()> {
+                    let mut module = create(config, Arc::clone(&exit_sig_clone), state)?;
+                    module.init()?;
+                    info!("Module {} successfully initialized", name);
+                    statuses_clone.set(name, ModuleStatus::Running);
+                    while !exit_sig_clone.load(Ordering::Acquire) {
+                        module.poll()?;
+                    }
+                    Ok(())
+                })();
+
+                exit_sig_clone.store(true, Ordering::Release);
+
+                match &result {
+                    Ok(()) => {
+                        info!("Module {} stopped", name);
+                        statuses_clone.set(name, ModuleStatus::Stopped)
+                    }
+                    Err(e) => {
+                        error!("Module {} error: {}", name, e);
+                        statuses_clone.set(name, ModuleStatus::Error(e.to_string().into()))
+                    }
+                }
+                result
+            });
+
+        match handle {
+            Ok(handle) => {
+                self.modules.push((
+                    name,
+                    ModuleHandle {
+                        handle,
+                        exit_sig,
+                    },
+                ));
+            }
+            Err(e) => {
+                error!("Failed to spawn thread for {}: {}", name, e);
+                statuses.set(name, ModuleStatus::Error(e.to_string().into()));
+            }
+        }
+    }
+
     pub fn start_all(&mut self) {
         #[cfg(feature = "touch")]
-        if self.config.touch.enabled {
-            self.start_module(ModuleName::Touch);
+        {
+            if self.config.touch.finale.enabled {
+                self.start_module(ModuleName::TouchFinale);
+            }
+            if self.config.touch.dx.enabled {
+                self.start_module(ModuleName::TouchDeluxe(1));
+                self.start_module(ModuleName::TouchDeluxe(2));
+            }
         }
 
         #[cfg(feature = "jvs")]
@@ -60,48 +148,42 @@ impl ModuleRuntime {
         }
     }
 
+    pub fn module_status(&self, name: ModuleName) -> ModuleStatus {
+        self.shared_state.statuses.get(name)
+    }
+
     pub fn start_module(&mut self, name: ModuleName) {
         self.stop_module(name);
 
-        self.set_status(name, ModuleStatus::Initializing);
-
-        let exit_sig = Arc::new(AtomicBool::new(false));
-        let state = self.shared_state.clone();
-
-        let result = match name {
+        match name {
             #[cfg(feature = "touch")]
-            ModuleName::Touch => {
-                crate::touch::setup(&self.config.touch, exit_sig.clone(), Some(state))
+            ModuleName::TouchFinale => {
+                self.spawn(name, |cfg, exit, state| {
+                    crate::touch::finale::setup(cfg.touch.finale, exit, state)
+                });
+            }
+            #[cfg(feature = "touch")]
+            ModuleName::TouchDeluxe(n) => {
+                self.spawn(name, move |cfg, exit, state| {
+                    crate::touch::deluxe::setup(n, cfg.touch.dx, exit, state)
+                });
             }
             #[cfg(feature = "jvs")]
             ModuleName::Jvs => {
-                crate::jvs::setup(&self.config.jvs, exit_sig.clone(), Some(state))
+                self.spawn(name, |cfg, exit, state| {
+                    crate::jvs::setup(cfg.jvs, exit, state)
+                });
             }
             #[cfg(feature = "reader")]
             ModuleName::Reader => {
-                crate::card_reader::setup(&self.config.reader, exit_sig.clone(), Some(state))
+                self.spawn(name, |cfg, exit, state| {
+                    crate::card_reader::setup(cfg.reader, exit, state)
+                });
             }
             #[allow(unreachable_patterns)]
             _ => {
                 error!("Module {:?} not compiled in", name);
-                self.set_status(name, ModuleStatus::Stopped);
-                return;
-            }
-        };
-
-        match result {
-            Ok(handles) => {
-                for handle in handles {
-                    self.modules.push((name, ModuleHandle {
-                        handle,
-                        exit_sig: exit_sig.clone(),
-                    }));
-                }
-                self.set_status(name, ModuleStatus::Running);
-            }
-            Err(e) => {
-                error!("Failed to start module {:?}: {}", name, e);
-                self.set_status(name, ModuleStatus::Error);
+                self.shared_state.statuses.set(name, ModuleStatus::Stopped);
             }
         }
     }
@@ -117,7 +199,7 @@ impl ModuleRuntime {
                 i += 1;
             }
         }
-        self.set_status(name, ModuleStatus::Stopped);
+        self.shared_state.statuses.set(name, ModuleStatus::Stopped);
     }
 
     pub fn restart_module(&mut self, name: ModuleName) {
@@ -140,12 +222,19 @@ impl ModuleRuntime {
         &self.config
     }
 
+    pub fn config_mut(&mut self) -> &mut Config {
+        &mut self.config
+    }
+
     pub fn shared_state(&self) -> &SharedState {
         &self.shared_state
     }
 
     pub fn exit_signals(&self) -> Vec<Arc<AtomicBool>> {
-        self.modules.iter().map(|(_, m)| m.exit_sig.clone()).collect()
+        self.modules
+            .iter()
+            .map(|(_, m)| m.exit_sig.clone())
+            .collect()
     }
 
     pub fn join_all(mut self) {
@@ -155,24 +244,6 @@ impl ModuleRuntime {
                 Ok(Err(e)) => error!("Module {:?} error: {}", name, e),
                 Err(_) => error!("Module {:?} panicked", name),
             }
-        }
-    }
-
-    pub fn module_status(&self, name: ModuleName) -> ModuleStatus {
-        let statuses = self.shared_state.statuses.lock().unwrap();
-        match name {
-            ModuleName::Touch => statuses.touch.unwrap_or(ModuleStatus::Stopped),
-            ModuleName::Jvs => statuses.jvs.unwrap_or(ModuleStatus::Stopped),
-            ModuleName::Reader => statuses.reader.unwrap_or(ModuleStatus::Stopped),
-        }
-    }
-
-    fn set_status(&self, name: ModuleName, status: ModuleStatus) {
-        let mut statuses = self.shared_state.statuses.lock().unwrap();
-        match name {
-            ModuleName::Touch => statuses.touch = Some(status),
-            ModuleName::Jvs => statuses.jvs = Some(status),
-            ModuleName::Reader => statuses.reader = Some(status),
         }
     }
 }

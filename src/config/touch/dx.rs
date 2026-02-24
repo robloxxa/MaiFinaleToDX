@@ -6,6 +6,36 @@ use std::time::Duration;
 use crate::config::touch::finale;
 use maifinale_macros::AreaMapping;
 
+#[derive(Deserialize, Serialize, Debug, Clone)]
+pub struct DxTouch {
+    pub enabled: bool,
+
+    #[serde(default)]
+    pub mode: super::TouchMode,
+
+    pub p1_port: String,
+    pub p2_port: String,
+
+    #[serde(default)]
+    pub p1_mapping: AreaMapping,
+
+    #[serde(default)]
+    pub p2_mapping: AreaMapping,
+}
+
+impl Default for DxTouch {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            mode: super::TouchMode::default(),
+            p1_port: "COM6".to_string(),
+            p2_port: "COM8".to_string(),
+            p1_mapping: AreaMapping::default(),
+            p2_mapping: AreaMapping::default(),
+        }
+    }
+}
+
 #[serde_as]
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct Area {
@@ -47,6 +77,58 @@ impl Area {
         self.bit = pos.1;
 
         self
+    }
+}
+
+impl AreaMapping {
+    pub fn fields_mut(&mut self, zone: &super::ZoneId) -> Vec<&mut Area> {
+        match zone {
+            super::ZoneId::A(n) => match n {
+                1 => vec![&mut self.a1],
+                2 => vec![&mut self.a2],
+                3 => vec![&mut self.a3],
+                4 => vec![&mut self.a4],
+                5 => vec![&mut self.a5],
+                6 => vec![&mut self.a6],
+                7 => vec![&mut self.a7],
+                8 => vec![&mut self.a8],
+                _ => vec![],
+            },
+            super::ZoneId::B(n) => match n {
+                1 => vec![&mut self.b1],
+                2 => vec![&mut self.b2],
+                3 => vec![&mut self.b3],
+                4 => vec![&mut self.b4],
+                5 => vec![&mut self.b5],
+                6 => vec![&mut self.b6],
+                7 => vec![&mut self.b7],
+                8 => vec![&mut self.b8],
+                _ => vec![],
+            },
+            super::ZoneId::C => vec![&mut self.c1, &mut self.c2],
+            super::ZoneId::D(n) => match n {
+                1 => vec![&mut self.d1],
+                2 => vec![&mut self.d2],
+                3 => vec![&mut self.d3],
+                4 => vec![&mut self.d4],
+                5 => vec![&mut self.d5],
+                6 => vec![&mut self.d6],
+                7 => vec![&mut self.d7],
+                8 => vec![&mut self.d8],
+                _ => vec![],
+            },
+            super::ZoneId::E(n) => match n {
+                1 => vec![&mut self.e1],
+                2 => vec![&mut self.e2],
+                3 => vec![&mut self.e3],
+                4 => vec![&mut self.e4],
+                5 => vec![&mut self.e5],
+                6 => vec![&mut self.e6],
+                7 => vec![&mut self.e7],
+                8 => vec![&mut self.e8],
+                _ => vec![],
+            },
+        }
     }
 }
 

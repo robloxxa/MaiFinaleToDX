@@ -2,19 +2,23 @@ use crate::config::{self};
 use crate::error::Result;
 use crate::keyboard::Keyboard;
 use crate::port::{Port, RealPort};
-use anyhow::{anyhow, Context};
+use crate::runtime::Module;
+use anyhow::anyhow;
 use arrayvec::ArrayVec;
 use jvs_packets::jvs_modified::{ModifiedPacket, RequestPacket, ResponsePacket};
 use jvs_packets::{Packet, ReadPacket, WritePacket};
-use log::{error, info};
+use tracing::{error, info};
 use std::fs::{File, OpenOptions};
 use std::io::Write;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::thread::JoinHandle;
 use std::time::Duration;
 use std::{io, thread};
 use winapi::um::winuser::VK_RETURN;
+
+pub(crate) mod state;
+
+pub use state::State;
 
 // #[derive(Debug)]
 // #[repr(u8)]
@@ -27,6 +31,7 @@ use winapi::um::winuser::VK_RETURN;
 //     Poll = 0x42,
 //     Reset = 0x62,
 // }
+// 
 
 #[non_exhaustive]
 pub struct Cmd;
@@ -48,13 +53,15 @@ pub struct CardReader {
 
     reader_file: File,
     destinations: ArrayVec<u8, 4>,
+    retry_count: i64,
+    exit_sig: Arc<AtomicBool>,
 
     req_packet: RequestPacket<128>,
     res_packet: ResponsePacket<128>,
 }
 
 impl CardReader {
-    pub fn new(cfg: &config::Reader) -> Result<Self> {
+    pub fn new(cfg: &config::Reader, exit_sig: Arc<AtomicBool>) -> Result<Self> {
         let mut finale_port = RealPort::open(&cfg.port, 38_400)?;
 
         finale_port.set_read_timeout(Duration::from_millis(5000))?;
@@ -68,52 +75,56 @@ impl CardReader {
                     .ok_or_else(|| anyhow!("Device file not specified"))?,
             )?,
             destinations: cfg.destinations.clone(),
+            retry_count: cfg.init_retry_count.unwrap_or(i64::MAX),
+            exit_sig,
             req_packet: RequestPacket::default(),
             res_packet: ResponsePacket::default(),
         })
     }
 
-    pub fn init(&mut self, dest: u8) -> io::Result<()> {
-        self.cmd(dest, Cmd::RESET, &[00])?;
-        self.cmd(dest, Cmd::RESET, &[00])?;
-        info!("(DEST: {}) Reset sent", dest);
-
-        thread::sleep(Duration::from_secs(2));
-
-        self.cmd(dest, Cmd::GET_FIRMWARE, &[00])?;
-        info!(
-            "(DEST: {}) Firmware Version: {}",
-            dest,
-            std::str::from_utf8(self.res_packet.data()).unwrap()
-        );
-
-        self.cmd(dest, Cmd::GET_HARDWARE, &[00])?;
-        info!(
-            "(DEST: {}) Hardware Version: {}",
-            dest,
-            std::str::from_utf8(self.res_packet.data()).unwrap()
-        );
-
-        self.cmd(dest, Cmd::RADIO_ON, &[0x01, 0x03])?;
-        info!("(DEST: {}) Radio On", dest);
-
-        info!("Reader at destination {} successfully initialized", dest);
-
-        Ok(())
-    }
-
-    pub fn try_init(&mut self, retry_count: i64) -> io::Result<()> {
+    fn init_impl(&mut self) -> io::Result<()> {
+        let retry_count = self.retry_count;
         let mut destinations = ArrayVec::<u8, 4>::new();
 
         for i in 0..self.destinations.len() {
-            for r in 0..retry_count {
-                let destination = self.destinations[i];
+            let destination = self.destinations[i];
 
+            for r in 0..retry_count {
+                if self.exit_sig.load(Ordering::Acquire) {
+                    return Err(io::Error::new(io::ErrorKind::Interrupted, "Cancelled"));
+                }
                 info!(
                     "Initializing Card Reader at destination {}. Attempt {}",
-                    destination, r
+                    destination,
+                    r + 1
                 );
-                match self.init(destination) {
+                match (|| -> io::Result<()> {
+                    self.cmd(destination, Cmd::RESET, &[00])?;
+                    self.cmd(destination, Cmd::RESET, &[00])?;
+                    info!("(DEST: {}) Reset sent", destination);
+
+                    thread::sleep(Duration::from_secs(2));
+
+                    self.cmd(destination, Cmd::GET_FIRMWARE, &[00])?;
+                    info!(
+                        "(DEST: {}) Firmware Version: {}",
+                        destination,
+                        std::str::from_utf8(self.res_packet.data()).unwrap()
+                    );
+
+                    self.cmd(destination, Cmd::GET_HARDWARE, &[00])?;
+                    info!(
+                        "(DEST: {}) Hardware Version: {}",
+                        destination,
+                        std::str::from_utf8(self.res_packet.data()).unwrap()
+                    );
+
+                    self.cmd(destination, Cmd::RADIO_ON, &[0x01, 0x03])?;
+                    info!("(DEST: {}) Radio On", destination);
+
+                    info!("Reader at destination {} successfully initialized", destination);
+                    Ok(())
+                })() {
                     Ok(()) => {
                         destinations.push(destination);
                         break;
@@ -152,7 +163,7 @@ impl CardReader {
         Ok(())
     }
 
-    pub fn poll(&mut self) -> io::Result<()> {
+    fn poll_readers(&mut self) -> io::Result<()> {
         for i in 0..self.destinations.len() {
             match self.cmd(self.destinations[i], Cmd::POLL, &[00]) {
                 Ok(()) => {
@@ -190,26 +201,24 @@ impl Drop for CardReader {
     }
 }
 
+impl Module for CardReader {
+    fn init(&mut self) -> Result<()> {
+        self.init_impl()?;
+        Ok(())
+    }
+
+    fn poll(&mut self) -> Result<()> {
+        let _ = self.poll_readers();
+        thread::sleep(Duration::from_millis(250));
+        Ok(())
+    }
+}
+
 pub fn setup(
-    cfg: &config::reader::Reader,
-    should_exit: Arc<AtomicBool>,
-    _shared_state: Option<crate::state::SharedState>,
-) -> Result<Vec<JoinHandle<Result<()>>>> {
-    let mut reader = CardReader::new(cfg)?;
-
-    reader.try_init(cfg.init_retry_count.unwrap_or(i64::MAX))?;
-
-    let handle = thread::Builder::new()
-        .name("Card Reader Thread".to_string())
-        .spawn(move || -> Result<()> {
-            while !should_exit.load(Ordering::Acquire) {
-                let _ = reader.poll();
-                thread::sleep(Duration::from_millis(250));
-            }
-
-            Ok(())
-        })
-        .with_context(|| "Card Reader thread failed to spawn".to_string())?;
-
-    Ok(vec![handle])
+    cfg: config::reader::Reader,
+    exit_sig: Arc<AtomicBool>,
+    _shared_state: crate::state::SharedState,
+) -> Result<Box<dyn Module>> {
+    let reader = CardReader::new(&cfg, exit_sig)?;
+    Ok(Box::new(reader))
 }
