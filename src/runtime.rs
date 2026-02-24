@@ -1,11 +1,11 @@
 use crate::config::Config;
-use crate::error::Result;
+use crate::error::{self, Result};
 use crate::state::{ModuleStatus, SharedState};
 use std::fmt;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 pub trait Module: Send + 'static {
     fn init(&mut self) -> Result<()> {
@@ -100,6 +100,10 @@ impl ModuleRuntime {
                         info!("Module {} stopped", name);
                         statuses_clone.set(name, ModuleStatus::Stopped)
                     }
+                    Err(error::Error::ModuleDisabled(name)) => {
+                        warn!("Module {} disabled", name);
+                        statuses_clone.set(name.clone(), ModuleStatus::Stopped)
+                    }
                     Err(e) => {
                         error!("Module {} error: {}", name, e);
                         statuses_clone.set(name, ModuleStatus::Error(e.to_string().into()))
@@ -132,8 +136,14 @@ impl ModuleRuntime {
                 self.start_module(ModuleName::TouchFinale);
             }
             if self.config.touch.dx.enabled {
-                self.start_module(ModuleName::TouchDeluxe(1));
-                self.start_module(ModuleName::TouchDeluxe(2));
+                let emulated = self.config.touch.dx.mode
+                    == crate::config::touch::TouchMode::Emulated;
+                if emulated || self.config.touch.dx.p1_port.is_some() {
+                    self.start_module(ModuleName::TouchDeluxe(1));
+                }
+                if emulated || self.config.touch.dx.p2_port.is_some() {
+                    self.start_module(ModuleName::TouchDeluxe(2));
+                }
             }
         }
 

@@ -1,6 +1,8 @@
 use std::io;
 use thiserror::Error;
 
+use crate::runtime::ModuleName;
+
 pub type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Error, Debug)]
@@ -16,6 +18,9 @@ pub enum Error {
 
     #[error("finale area error: {0}")]
     FinaleArea(String),
+    
+    #[error("module is disabled: {0}")]
+    ModuleDisabled(ModuleName),
 
     #[error(transparent)]
     Other(#[from] anyhow::Error),

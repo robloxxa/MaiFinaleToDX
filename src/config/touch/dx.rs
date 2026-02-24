@@ -13,8 +13,10 @@ pub struct DxTouch {
     #[serde(default)]
     pub mode: super::TouchMode,
 
-    pub p1_port: String,
-    pub p2_port: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub p1_port: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub p2_port: Option<String>,
 
     #[serde(default)]
     pub p1_mapping: AreaMapping,
@@ -28,8 +30,8 @@ impl Default for DxTouch {
         Self {
             enabled: true,
             mode: super::TouchMode::default(),
-            p1_port: "COM6".to_string(),
-            p2_port: "COM8".to_string(),
+            p1_port: Some("COM6".to_string()),
+            p2_port: Some("COM8".to_string()),
             p1_mapping: AreaMapping::default(),
             p2_mapping: AreaMapping::default(),
         }

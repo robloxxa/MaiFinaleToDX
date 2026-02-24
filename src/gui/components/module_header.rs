@@ -5,39 +5,85 @@ use crate::{
     state::ModuleStatus,
 };
 
-pub fn show(ui: &mut egui::Ui, runtime: &mut ModuleRuntime, name: ModuleName) {
-    let status = runtime.module_status(name);
+pub enum ModuleHeaderAction {
+    None,
+    Start,
+    Stop,
+    Restart,
+}
 
-    ui.horizontal(|ui| {
-        ui.heading(name.as_str());
-        match status {
-            ModuleStatus::Stopped | ModuleStatus::Error(_) => {
-                if ui.button("Start").clicked() {
-                    runtime.start_module(name);
-                }
-            }
-            ModuleStatus::Running => {
-                if ui.button("Stop").clicked() {
-                    runtime.stop_module(name);
-                }
-                if ui.button("Restart").clicked() {
-                    runtime.restart_module(name);
-                }
-            }
-            ModuleStatus::Initializing => {
-                ui.add_enabled(false, egui::Button::new("..."));
-            }
+impl ModuleHeaderAction {
+    pub fn apply(self, runtime: &mut ModuleRuntime, name: ModuleName) {
+        match self {
+            Self::None => {}
+            Self::Start => runtime.start_module(name),
+            Self::Stop => runtime.stop_module(name),
+            Self::Restart => runtime.restart_module(name),
         }
-        let (status_text, color) = match status {
-            ModuleStatus::Stopped => ("Stopped", egui::Color32::GRAY),
-            ModuleStatus::Initializing => ("Initializing...", egui::Color32::YELLOW),
-            ModuleStatus::Running => ("Running", egui::Color32::GREEN),
-            ModuleStatus::Error(_) => ("Error", egui::Color32::RED),
-        };
+    }
+}
 
-        ui.colored_label(color, format!("Status: {}", status_text));
-        if let ModuleStatus::Error(message) = status {
-            ui.colored_label(egui::Color32::RED, message.as_ref());
-        }
-    });
+
+pub fn show_collapsible<R>(
+    ui: &mut egui::Ui,
+    name: ModuleName,
+    status: ModuleStatus,
+    enabled: Option<&mut bool>,
+    add_body: impl FnOnce(&mut egui::Ui) -> R,
+) -> (ModuleHeaderAction, Option<R>) {
+    let id = ui.id().with(name.as_str());
+    let mut action = ModuleHeaderAction::None;
+
+    let (_, _, body_inner) =
+        egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, true)
+            .show_header(ui, |ui| {
+                ui.label(name.as_str());
+                
+                if let Some(enabled) = enabled {
+                    if ui.checkbox(enabled, "Enabled").changed() {
+                        if *enabled {
+                            action = ModuleHeaderAction::Start;
+                        } else {
+                            action = ModuleHeaderAction::Stop;
+                        }
+                    }
+                }
+                
+                
+
+                let (status_text, color) = match &status {
+                    ModuleStatus::Stopped => ("Stopped", egui::Color32::GRAY),
+                    ModuleStatus::Initializing => ("Initializing...", egui::Color32::YELLOW),
+                    ModuleStatus::Running => ("Running", egui::Color32::GREEN),
+                    ModuleStatus::Error(_) => ("Error", egui::Color32::RED),
+                };
+
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    match &status {
+                        ModuleStatus::Stopped | ModuleStatus::Error(_) => {
+                            if ui.button("Start").clicked() {
+                                action = ModuleHeaderAction::Start;
+                            }
+                        }
+                        ModuleStatus::Running => {
+                            if ui.button("Restart").clicked() {
+                                action = ModuleHeaderAction::Restart;
+                            }
+                            if ui.button("Stop").clicked() {
+                                action = ModuleHeaderAction::Stop;
+                            }
+                        }
+                        ModuleStatus::Initializing => {
+                            ui.add_enabled(false, egui::Button::new("..."));
+                        }
+                    }
+                    ui.colored_label(color, status_text);
+                    if let ModuleStatus::Error(msg) = &status {
+                        ui.colored_label(egui::Color32::RED, msg.as_ref());
+                    }
+                });
+            })
+            .body(|ui| add_body(ui));
+
+    (action, body_inner.map(|r| r.inner))
 }

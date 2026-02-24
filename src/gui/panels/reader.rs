@@ -20,48 +20,57 @@ impl<'a> Reader<'a> {
 
 impl<'a> Panel for Reader<'a> {
     fn left_header(&mut self, ui: &mut egui::Ui) {
-        module_header::show(ui, self.runtime, ModuleName::Reader);
-
-        {
+        let status = self.runtime.module_status(ModuleName::Reader);
+        let action = {
             let cfg = self.runtime.config_mut();
             let mut w = ConfigWidgets::new(self.pending_restarts);
+            let (action, _) = module_header::show_collapsible(
+                ui, ModuleName::Reader, status, Some(&mut cfg.reader.enabled),
+                |ui| {
+                    ui.horizontal(|ui| {
+                        w.labeled_config_field(ui, "Port", ModuleName::Reader, |ui| {
+                            port_combobox(ui, "reader_port", &mut cfg.reader.port)
+                        });
+                    });
 
-            ui.horizontal(|ui| {
-                w.labeled_config_field(ui, "Enabled", ModuleName::Reader, |ui| {
-                    ui.checkbox(&mut cfg.reader.enabled, "").changed()
-                });
-                w.labeled_config_field(ui, "Port", ModuleName::Reader, |ui| {
-                    port_combobox(ui, "reader_port", &mut cfg.reader.port)
-                });
-            });
+                    let mut device_file = cfg.reader.device_file.clone().unwrap_or_default();
+                    w.labeled_config_field(ui, "Device file", ModuleName::Reader, |ui| {
+                        let changed = ui.add(
+                            egui::TextEdit::singleline(&mut device_file).desired_width(120.0),
+                        ).changed();
+                        if changed {
+                            cfg.reader.device_file = if device_file.is_empty() {
+                                None
+                            } else {
+                                Some(device_file.clone())
+                            };
+                        }
+                        changed
+                    });
 
-            let mut device_file = cfg.reader.device_file.clone().unwrap_or_default();
-            w.labeled_config_field(ui, "Device file", ModuleName::Reader, |ui| {
-                let changed = ui.add(egui::TextEdit::singleline(&mut device_file).desired_width(120.0)).changed();
-                if changed {
-                    cfg.reader.device_file = if device_file.is_empty() { None } else { Some(device_file.clone()) };
-                }
-                changed
-            });
-
-            let mut destinations_text = cfg.reader.destinations
-                .iter()
-                .map(|b| b.to_string())
-                .collect::<Vec<_>>()
-                .join(",");
-            w.labeled_config_field(ui, "Destinations", ModuleName::Reader, |ui| {
-                let changed = ui.add(egui::TextEdit::singleline(&mut destinations_text).desired_width(80.0)).changed();
-                if changed {
-                    cfg.reader.destinations = destinations_text
-                        .split(',')
-                        .filter_map(|s| s.trim().parse::<u8>().ok())
-                        .take(4)
-                        .collect();
-                }
-                changed
-            });
-        }
-
+                    let mut destinations_text = cfg.reader.destinations
+                        .iter()
+                        .map(|b| b.to_string())
+                        .collect::<Vec<_>>()
+                        .join(",");
+                    w.labeled_config_field(ui, "Destinations", ModuleName::Reader, |ui| {
+                        let changed = ui.add(
+                            egui::TextEdit::singleline(&mut destinations_text).desired_width(80.0),
+                        ).changed();
+                        if changed {
+                            cfg.reader.destinations = destinations_text
+                                .split(',')
+                                .filter_map(|s| s.trim().parse::<u8>().ok())
+                                .take(4)
+                                .collect();
+                        }
+                        changed
+                    });
+                },
+            );
+            action
+        };
+        action.apply(&mut self.runtime, ModuleName::Reader);
     }
 
     fn left_body(&mut self, ui: &mut egui::Ui) {

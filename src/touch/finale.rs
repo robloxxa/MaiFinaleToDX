@@ -1,6 +1,6 @@
 use crate::config::touch::finale::{FinaleTouch, Threshold};
 use crate::config::touch::TouchMode;
-use crate::error::Result;
+use crate::error::{Error, Result};
 use crate::port::{MockPort, Port, RealPort};
 use crate::runtime::Module;
 use crate::state::SharedState;
@@ -198,6 +198,10 @@ pub fn setup(
     exit_sig: Arc<AtomicBool>,
     shared_state: SharedState,
 ) -> Result<Box<dyn Module>> {
+    if !config.enabled {
+        return Err(Error::ModuleDisabled(crate::runtime::ModuleName::TouchFinale));
+    }
+    
     let input = AtomicTouchInput::new(shared_state.touch.clone());
 
     let (port, emu_handle): (Box<dyn Port>, Option<JoinHandle<Result<()>>>) = match config.mode {

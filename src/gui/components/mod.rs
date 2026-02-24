@@ -42,6 +42,10 @@ impl<'a> ConfigWidgets<'a> {
         Self { pending }
     }
 
+    pub fn mark_dirty(&mut self, module: ModuleName) {
+        self.pending.insert(module);
+    }
+
     pub fn labeled_config_field(
         &mut self,
         ui: &mut egui::Ui,

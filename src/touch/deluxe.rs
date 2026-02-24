@@ -9,7 +9,7 @@ use tracing::{error, warn};
 use crate::config;
 use crate::config::touch::dx::DxTouch;
 use crate::config::touch::TouchMode;
-use crate::error::Result;
+use crate::error::{Error, Result};
 use crate::helper_funcs::bit_read;
 use crate::port::{MockPort, Port, RealPort};
 use crate::runtime::Module;
@@ -165,11 +165,15 @@ pub fn setup(
     exit_sig: Arc<AtomicBool>,
     shared_state: SharedState,
 ) -> Result<Box<dyn Module>> {
-    let (port_name, dx_raw, mapping) = match num {
-        1 => (config.p1_port.clone(), shared_state.touch.p1_dx_raw.clone(), config.p1_mapping.clone()),
-        2 => (config.p2_port.clone(), shared_state.touch.p2_dx_raw.clone(), config.p2_mapping.clone()),
+    let (enabled, port_name, dx_raw, mapping) = match num {
+        1 => (config.enabled, config.p1_port.clone(), shared_state.touch.p1_dx_raw.clone(), config.p1_mapping.clone()),
+        2 => (config.enabled, config.p2_port.clone(), shared_state.touch.p2_dx_raw.clone(), config.p2_mapping.clone()),
         _ => return Err(anyhow::anyhow!("Invalid player number: {}", num).into()),
     };
+    
+    if !enabled {
+        return Err(Error::ModuleDisabled(crate::runtime::ModuleName::TouchDeluxe(num)));
+    }
 
     let (port, emu_handle): (Box<dyn Port>, Option<JoinHandle<Result<()>>>) = match config.mode {
         TouchMode::Emulated => {
@@ -180,7 +184,10 @@ pub fn setup(
             (mock_clone, Some(handle))
         }
         TouchMode::Hardware => {
-            let port = RealPort::open(&port_name, 115_200).map_err(|e| {
+            let name = port_name.ok_or_else(|| {
+                anyhow::anyhow!("No port configured for Deluxe P{} Touchscreen", num)
+            })?;
+            let port = RealPort::open(&name, 115_200).map_err(|e| {
                 error!("Cannot open serial port for Deluxe P{} Touchscreen: {}", num, e);
                 e
             })?;

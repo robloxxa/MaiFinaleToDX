@@ -17,6 +17,15 @@ const SINGLE_SCREEN_ASPECT: f32 = 9.0 / 16.0;
 const DUAL_SCREEN_ASPECT: f32 = 9.0 / 8.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NavAction {
+    None,
+    SetTab(Tab),
+    ToggleDualScreen,
+    Apply,
+    Discard,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Tab {
     #[cfg(feature = "touch")]
     Touch,
@@ -145,6 +154,48 @@ impl App {
         self.runtime.update_config(self.clean_config.clone());
         self.config_editor.reload_from(&self.clean_config);
     }
+
+    fn handle_nav_action(&mut self, ctx: &egui::Context, action: NavAction) {
+        match action {
+            NavAction::None => {}
+            NavAction::SetTab(tab) => self.active_tab = tab,
+            NavAction::ToggleDualScreen => {
+                self.dual_screen = !self.dual_screen;
+                let aspect = self.target_aspect_ratio();
+                let new_width = self.monitor_height * aspect;
+                self.expected_size = egui::vec2(new_width, self.monitor_height);
+                ctx.send_viewport_cmd(ViewportCommand::InnerSize(self.expected_size));
+            }
+            NavAction::Apply => self.apply_all(),
+            NavAction::Discard => self.discard_all(),
+        }
+    }
+}
+
+fn render_nav_bar(ui: &mut egui::Ui, active_tab: Tab, dual_screen: bool, any_dirty: bool) -> NavAction {
+    let mut action = NavAction::None;
+    ui.horizontal(|ui| {
+        for &(tab, label) in Tab::ALL {
+            if ui.selectable_label(active_tab == tab, label).clicked() {
+                action = NavAction::SetTab(tab);
+            }
+        }
+        ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
+            let label = if dual_screen { "Collapse" } else { "Expand" };
+            if ui.button(label).clicked() {
+                action = NavAction::ToggleDualScreen;
+            }
+            if any_dirty {
+                if ui.button("Apply Unsaved Changes").clicked() {
+                    action = NavAction::Apply;
+                }
+                if ui.button("Dismiss").clicked() {
+                    action = NavAction::Discard;
+                }
+            }
+        });
+    });
+    action
 }
 
 impl eframe::App for App {
@@ -163,36 +214,21 @@ impl eframe::App for App {
         egui::TopBottomPanel::top("nav_panel")
             .resizable(false)
             .show(ctx, |ui| {
-                ui.horizontal(|ui| {
-                    for &(tab, label) in Tab::ALL {
-                        if ui
-                            .selectable_label(self.active_tab == tab, label)
-                            .clicked()
-                        {
-                            self.active_tab = tab;
-                        }
-                    }
+                let any_dirty = self.any_dirty();
+                let active_tab = self.active_tab;
+                let dual_screen = self.dual_screen;
 
-                    ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
-                        let label = if self.dual_screen { "Collapse" } else { "Expand" };
-                        if ui.button(label).clicked() {
-                            self.dual_screen = !self.dual_screen;
-                            let aspect = self.target_aspect_ratio();
-                            let new_width = self.monitor_height * aspect;
-                            self.expected_size = egui::vec2(new_width, self.monitor_height);
-                            ctx.send_viewport_cmd(ViewportCommand::InnerSize(self.expected_size));
-                        }
+                let action = if dual_screen {
+                    ui.columns(2, |cols| {
+                        let a = render_nav_bar(&mut cols[0], active_tab, dual_screen, any_dirty);
+                        let b = render_nav_bar(&mut cols[1], active_tab, dual_screen, any_dirty);
+                        if !matches!(a, NavAction::None) { a } else { b }
+                    })
+                } else {
+                    render_nav_bar(ui, active_tab, dual_screen, any_dirty)
+                };
 
-                        if self.any_dirty() {
-                            if ui.button("Apply Unsaved Changes").clicked() {
-                                self.apply_all();
-                            }
-                            if ui.button("Dismiss").clicked() {
-                                self.discard_all();
-                            }
-                        }
-                    });
-                });
+                self.handle_nav_action(ctx, action);
             });
 
         let dual_screen = self.dual_screen;

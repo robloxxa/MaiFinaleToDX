@@ -25,37 +25,35 @@ impl<'a> Jvs<'a> {
 
 impl<'a> Panel for Jvs<'a> {
     fn left_header(&mut self, ui: &mut egui::Ui) {
-        module_header::show(ui, self.runtime, ModuleName::Jvs);
-
-        {
+        let status = self.runtime.module_status(ModuleName::Jvs);
+        let action = {
             let cfg = self.runtime.config_mut();
-
-            {
-                let mut w = ConfigWidgets::new(self.pending_restarts);
-                ui.horizontal(|ui| {
-                    w.labeled_config_field(ui, "Enabled", ModuleName::Jvs, |ui| {
-                        ui.checkbox(&mut cfg.jvs.enabled, "").changed()
+            let mut w = ConfigWidgets::new(self.pending_restarts);
+            let (action, _) = module_header::show_collapsible(
+                ui, ModuleName::Jvs, status, Some(&mut cfg.jvs.enabled),
+                |ui| {
+                    ui.horizontal(|ui| {
+                        w.labeled_config_field(ui, "Port", ModuleName::Jvs, |ui| {
+                            port_combobox(ui, "jvs_port", &mut cfg.jvs.port)
+                        });
                     });
-                    w.labeled_config_field(ui, "Port", ModuleName::Jvs, |ui| {
-                        port_combobox(ui, "jvs_port", &mut cfg.jvs.port)
+                    egui::CollapsingHeader::new("Key Bindings").show(ui, |ui| {
+                        egui::Grid::new("jvs_keys").num_columns(2).show(ui, |ui| {
+                            key_bind_row(ui, "Test", &mut cfg.jvs.input.test, &mut w);
+                            key_bind_row(ui, "Service", &mut cfg.jvs.input.service, &mut w);
+                            for i in 1..=8u8 {
+                                key_bind_row(ui, &format!("P1 Btn {i}"), p1_btn_mut(&mut cfg.jvs.input, i), &mut w);
+                            }
+                            for i in 1..=8u8 {
+                                key_bind_row(ui, &format!("P2 Btn {i}"), p2_btn_mut(&mut cfg.jvs.input, i), &mut w);
+                            }
+                        });
                     });
-                });
-            }
-
-            egui::CollapsingHeader::new("Key Bindings").show(ui, |ui| {
-                egui::Grid::new("jvs_keys").num_columns(2).show(ui, |ui| {
-                    key_bind_row(ui, "Test", &mut cfg.jvs.input.test, self.pending_restarts);
-                    key_bind_row(ui, "Service", &mut cfg.jvs.input.service, self.pending_restarts);
-                    for i in 1..=8u8 {
-                        key_bind_row(ui, &format!("P1 Btn {i}"), p1_btn_mut(&mut cfg.jvs.input, i), self.pending_restarts);
-                    }
-                    for i in 1..=8u8 {
-                        key_bind_row(ui, &format!("P2 Btn {i}"), p2_btn_mut(&mut cfg.jvs.input, i), self.pending_restarts);
-                    }
-                });
-            });
-        }
-
+                },
+            );
+            action
+        };
+        action.apply(&mut self.runtime, ModuleName::Jvs);
     }
 
     fn left_body(&mut self, ui: &mut egui::Ui) {
@@ -203,13 +201,13 @@ fn polar(center: egui::Pos2, angle: f32, r: f32) -> egui::Pos2 {
     center + egui::vec2(angle.cos() * r, angle.sin() * r)
 }
 
-fn key_bind_row(ui: &mut egui::Ui, label: &str, vk: &mut c_int, pending: &mut HashSet<ModuleName>) {
+fn key_bind_row(ui: &mut egui::Ui, label: &str, vk: &mut c_int, w: &mut ConfigWidgets<'_>) {
     ui.label(label);
     let mut text = format!("0x{:02X}", vk);
     if ui.add(egui::TextEdit::singleline(&mut text).desired_width(55.0)).changed() {
         if let Ok(v) = i32::from_str_radix(text.trim_start_matches("0x"), 16) {
             *vk = v;
-            pending.insert(ModuleName::Jvs);
+            w.mark_dirty(ModuleName::Jvs);
         }
     }
     ui.end_row();
