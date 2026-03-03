@@ -78,6 +78,8 @@ pub fn run(runtime: ModuleRuntime) -> Result<()> {
         pending_restarts: HashSet::new(),
         #[cfg(feature = "touch")]
         touch_editor: panels::touch::TouchEditorState::default(),
+        #[cfg(feature = "reader")]
+        reader_panel_state: panels::reader::ReaderPanelState::default(),
         dual_screen: false,
         monitor_height,
         expected_size: egui::vec2(initial_width, monitor_height),
@@ -98,6 +100,8 @@ struct App {
     pending_restarts: HashSet<ModuleName>,
     #[cfg(feature = "touch")]
     touch_editor: panels::touch::TouchEditorState,
+    #[cfg(feature = "reader")]
+    reader_panel_state: panels::reader::ReaderPanelState,
     dual_screen: bool,
     monitor_height: f32,
     expected_size: egui::Vec2,
@@ -259,6 +263,7 @@ impl eframe::App for App {
                         let mut panel = panels::reader::Reader::new(
                             &mut self.runtime,
                             &mut self.pending_restarts,
+                            &mut self.reader_panel_state,
                         );
                         show_panel(ui, &mut panel, dual_screen);
                     }

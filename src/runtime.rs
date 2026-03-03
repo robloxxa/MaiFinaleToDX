@@ -1,9 +1,8 @@
 use crate::config::Config;
 use crate::error::{self, Result};
+use crate::exit_signal::ExitSignal;
 use crate::state::{ModuleStatus, SharedState};
 use std::fmt;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 use tracing::{error, info, warn};
 
@@ -44,7 +43,7 @@ impl fmt::Display for ModuleName {
 
 struct ModuleHandle {
     handle: JoinHandle<Result<()>>,
-    exit_sig: Arc<AtomicBool>,
+    exit_sig: ExitSignal,
 }
 
 pub struct ModuleRuntime {
@@ -65,11 +64,11 @@ impl ModuleRuntime {
     fn spawn(
         &mut self,
         name: ModuleName,
-        create: impl FnOnce(Config, Arc<AtomicBool>, SharedState) -> Result<Box<dyn Module>>
+        create: impl FnOnce(Config, ExitSignal, SharedState) -> Result<Box<dyn Module>>
             + Send
             + 'static,
     ) {
-        let exit_sig = Arc::new(AtomicBool::new(false));
+        let exit_sig = ExitSignal::new();
         let config = self.config.clone();
         let state = self.shared_state.clone();
         let statuses = self.shared_state.statuses.clone();
@@ -83,17 +82,17 @@ impl ModuleRuntime {
             .name(format!("{} Thread", name))
             .spawn(move || {
                 let result = (|| -> Result<()> {
-                    let mut module = create(config, Arc::clone(&exit_sig_clone), state)?;
+                    let mut module = create(config, exit_sig_clone.clone(), state)?;
                     module.init()?;
                     info!("Module {} successfully initialized", name);
                     statuses_clone.set(name, ModuleStatus::Running);
-                    while !exit_sig_clone.load(Ordering::Acquire) {
+                    while !exit_sig_clone.is_set() {
                         module.poll()?;
                     }
                     Ok(())
                 })();
 
-                exit_sig_clone.store(true, Ordering::Release);
+                exit_sig_clone.set();
 
                 match &result {
                     Ok(()) => {
@@ -203,7 +202,7 @@ impl ModuleRuntime {
         while i < self.modules.len() {
             if self.modules[i].0 == name {
                 let (_, module) = self.modules.remove(i);
-                module.exit_sig.store(true, Ordering::Release);
+                module.exit_sig.set();
                 let _ = module.handle.join();
             } else {
                 i += 1;
@@ -219,7 +218,7 @@ impl ModuleRuntime {
 
     pub fn stop_all(&mut self) {
         for (_, module) in self.modules.drain(..) {
-            module.exit_sig.store(true, Ordering::Release);
+            module.exit_sig.set();
             let _ = module.handle.join();
         }
     }
@@ -240,7 +239,7 @@ impl ModuleRuntime {
         &self.shared_state
     }
 
-    pub fn exit_signals(&self) -> Vec<Arc<AtomicBool>> {
+    pub fn exit_signals(&self) -> Vec<ExitSignal> {
         self.modules
             .iter()
             .map(|(_, m)| m.exit_sig.clone())

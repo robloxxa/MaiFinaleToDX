@@ -4,6 +4,13 @@ use winapi::um::winuser::{
     VK_NUMPAD1, VK_NUMPAD2, VK_NUMPAD3, VK_NUMPAD4, VK_NUMPAD6, VK_NUMPAD7, VK_NUMPAD8, VK_NUMPAD9,
 };
 
+#[derive(Deserialize, Serialize, Debug, Clone, Default, PartialEq, Eq)]
+pub enum JvsMode {
+    #[default]
+    Hardware,
+    Emulated,
+}
+
 const TEST_DEFAULT: c_int = 0x54;
 const SERVICE_DEFAULT: c_int = 0x33;
 
@@ -33,6 +40,9 @@ pub struct Jvs {
     /// See [`Input`] to see what keys are emulated.
     pub enabled: bool,
 
+    #[serde(default)]
+    pub mode: JvsMode,
+
     /// COM Port for Finale's Jvs
     pub port: String,
 
@@ -47,6 +57,7 @@ impl Default for Jvs {
     fn default() -> Self {
         Self {
             enabled: true,
+            mode: JvsMode::default(),
             port: "COM23".to_string(),
             init_retry_count: None,
             input: Input::default(),

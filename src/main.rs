@@ -7,16 +7,18 @@ use tracing::{error, info, warn};
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
 use anyhow::Context;
-use std::sync::atomic::Ordering;
 use winapi::um::timeapi;
 
 mod config;
 mod error;
+mod exit_signal;
 mod helper_funcs;
 mod keyboard;
 mod port;
 mod runtime;
 mod state;
+
+pub use exit_signal::ExitSignal;
 
 #[cfg(feature = "gui")]
 mod gui;
@@ -99,7 +101,7 @@ fn run_cli(runtime: ModuleRuntime) -> Result<()> {
     ctrlc::set_handler(move || {
         info!("Got CTRL+C, exiting...");
         for sig in &exit_signals {
-            sig.store(true, Ordering::Release);
+            sig.set();
         }
     })
     .context("Failed to setup CTRL+C handler")?;

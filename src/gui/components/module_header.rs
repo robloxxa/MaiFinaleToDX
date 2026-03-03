@@ -28,7 +28,6 @@ pub fn show_collapsible<R>(
     ui: &mut egui::Ui,
     name: ModuleName,
     status: ModuleStatus,
-    enabled: Option<&mut bool>,
     add_body: impl FnOnce(&mut egui::Ui) -> R,
 ) -> (ModuleHeaderAction, Option<R>) {
     let id = ui.id().with(name.as_str());
@@ -39,18 +38,6 @@ pub fn show_collapsible<R>(
             .show_header(ui, |ui| {
                 ui.label(name.as_str());
                 
-                if let Some(enabled) = enabled {
-                    if ui.checkbox(enabled, "Enabled").changed() {
-                        if *enabled {
-                            action = ModuleHeaderAction::Start;
-                        } else {
-                            action = ModuleHeaderAction::Stop;
-                        }
-                    }
-                }
-                
-                
-
                 let (status_text, color) = match &status {
                     ModuleStatus::Stopped => ("Stopped", egui::Color32::GRAY),
                     ModuleStatus::Initializing => ("Initializing...", egui::Color32::YELLOW),

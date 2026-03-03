@@ -14,7 +14,7 @@ lto = true
 default = ["touch", "reader", "jvs", "gui"]
 touch = []
 reader = ["dep:jvs-packets"]
-jvs = ["dep:jvs-packets"]
+jvs = []
 gui = ["dep:eframe"]
 
 [dependencies]

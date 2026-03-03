@@ -3,7 +3,7 @@ pub mod module_header;
 pub mod port_selector;
 pub mod split_panel;
 
-pub use port_selector::port_combobox;
+pub use port_selector::{port_combobox, port_combobox_optional};
 
 use eframe::egui;
 use std::collections::HashSet;
@@ -31,7 +31,6 @@ impl IntoModuleList for Option<ModuleName> {
         self.into_iter().collect()
     }
 }
-
 
 pub struct ConfigWidgets<'a> {
     pending: &'a mut HashSet<ModuleName>,

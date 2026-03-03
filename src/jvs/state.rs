@@ -6,32 +6,17 @@ pub struct State {
 
 impl Default for State {
     fn default() -> Self {
-        Self {
-            buttons: AtomicU32::new(0),
-        }
+        Self { buttons: AtomicU32::new(0) }
     }
 }
 
-
-#[allow(dead_code)]
 impl State {
-    pub fn store_buttons(&self, test: bool, service: bool, p1: [bool; 8], p2: [bool; 8]) {
-        let mut bits: u32 = 0;
-        if test {
-            bits |= 1;
+    pub fn set_button(&self, bit: u8, pressed: bool) {
+        if pressed {
+            self.buttons.fetch_or(1u32 << bit, Ordering::Relaxed);
+        } else {
+            self.buttons.fetch_and(!(1u32 << bit), Ordering::Relaxed);
         }
-        if service {
-            bits |= 1 << 1;
-        }
-        for i in 0..8 {
-            if p1[i] {
-                bits |= 1 << (2 + i);
-            }
-            if p2[i] {
-                bits |= 1 << (10 + i);
-            }
-        }
-        self.buttons.store(bits, Ordering::Relaxed);
     }
 
     pub fn load_buttons(&self) -> JvsButtons {

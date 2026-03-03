@@ -21,6 +21,9 @@ pub enum Error {
     
     #[error("module is disabled: {0}")]
     ModuleDisabled(ModuleName),
+    
+    #[error("module is stopped")]
+    ModuleStopped,
 
     #[error(transparent)]
     Other(#[from] anyhow::Error),

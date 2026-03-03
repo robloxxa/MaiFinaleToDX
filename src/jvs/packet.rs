@@ -117,6 +117,10 @@ impl Builder {
         }
     }
 
+    pub fn as_slice(&self) -> &[u8] {
+        &self.buf[..self.len]
+    }
+
     pub fn build(&mut self, dest: u8, data: &[u8]) -> &[u8] {
         self.len = 0;
         self.buf[self.len] = SYNC_BYTE;

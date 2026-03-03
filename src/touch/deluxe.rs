@@ -1,6 +1,6 @@
 use arrayvec::ArrayVec;
 use std::io::{Read, Write};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -10,6 +10,7 @@ use crate::config;
 use crate::config::touch::dx::DxTouch;
 use crate::config::touch::TouchMode;
 use crate::error::{Error, Result};
+use crate::exit_signal::ExitSignal;
 use crate::helper_funcs::bit_read;
 use crate::port::{MockPort, Port, RealPort};
 use crate::runtime::Module;
@@ -162,7 +163,7 @@ impl Drop for Deluxe {
 pub fn setup(
     num: u8,
     config: DxTouch,
-    exit_sig: Arc<AtomicBool>,
+    exit_sig: ExitSignal,
     shared_state: SharedState,
 ) -> Result<Box<dyn Module>> {
     let (enabled, port_name, dx_raw, mapping) = match num {

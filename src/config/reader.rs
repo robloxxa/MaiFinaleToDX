@@ -1,10 +1,20 @@
 use arrayvec::ArrayVec;
 use serde::{Deserialize, Serialize};
 
+#[derive(Deserialize, Serialize, Debug, Clone, Default, PartialEq, Eq)]
+pub enum ReaderMode {
+    #[default]
+    Hardware,
+    Emulated,
+}
+
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct Reader {
     /// Enable NFC reader feature
     pub enabled: bool,
+
+    #[serde(default)]
+    pub mode: ReaderMode,
 
     /// COM Port for NFC reader
     ///
@@ -28,6 +38,7 @@ impl Default for Reader {
     fn default() -> Self {
         Self {
             enabled: false,
+            mode: ReaderMode::default(),
             port: "COM24".to_string(),
             device_file: Some("./device.txt".to_string()),
             init_retry_count: None,

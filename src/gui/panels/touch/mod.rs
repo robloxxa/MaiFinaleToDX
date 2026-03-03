@@ -2,12 +2,12 @@ mod editor;
 mod touch_circle;
 mod zone_shape;
 
-pub use editor::TouchEditorState;
 use editor::show_zone_editor;
+pub use editor::TouchEditorState;
 use touch_circle::draw_touch_circle;
 
 use crate::config::touch::TouchMode;
-use crate::gui::components::{module_header, port_combobox, ConfigWidgets};
+use crate::gui::components::{module_header, port_combobox, port_combobox_optional, ConfigWidgets};
 use crate::gui::panels::Panel;
 use crate::runtime::{ModuleName, ModuleRuntime};
 use eframe::egui;
@@ -40,14 +40,15 @@ impl<'a> Touch<'a> {
         editor: &'a mut TouchEditorState,
         pending_restarts: &'a mut HashSet<ModuleName>,
     ) -> Self {
-        Self { runtime, editor, pending_restarts }
+        Self {
+            runtime,
+            editor,
+            pending_restarts,
+        }
     }
 }
 
-const DELUXE_MODULES: [ModuleName; 2] = [
-    ModuleName::TouchDeluxe(1),
-    ModuleName::TouchDeluxe(2),
-];
+const DELUXE_MODULES: [ModuleName; 2] = [ModuleName::TouchDeluxe(1), ModuleName::TouchDeluxe(2)];
 
 impl<'a> Panel for Touch<'a> {
     fn left_header(&mut self, ui: &mut egui::Ui) {
@@ -55,10 +56,12 @@ impl<'a> Panel for Touch<'a> {
         let finale_action = {
             let cfg = self.runtime.config_mut();
             let mut w = ConfigWidgets::new(self.pending_restarts);
-            let (action, _) = module_header::show_collapsible(
-                ui, ModuleName::TouchFinale, finale_status, Some(&mut cfg.touch.finale.enabled),
-                |ui| {
+            let (action, _) =
+                module_header::show_collapsible(ui, ModuleName::TouchFinale, finale_status, |ui| {
                     ui.horizontal(|ui| {
+                        w.labeled_config_field(ui, "Enabled", ModuleName::TouchFinale, |ui| {
+                            ui.checkbox(&mut cfg.touch.finale.enabled, "").changed()
+                        });
                         w.labeled_config_field(ui, "Mode", ModuleName::TouchFinale, |ui| {
                             let mut changed = false;
                             egui::ComboBox::from_id_salt("finale_mode")
@@ -67,16 +70,20 @@ impl<'a> Panel for Touch<'a> {
                                     TouchMode::Emulated => "Emulated",
                                 })
                                 .show_ui(ui, |ui| {
-                                    changed |= ui.selectable_value(
-                                        &mut cfg.touch.finale.mode,
-                                        TouchMode::Hardware,
-                                        "Hardware",
-                                    ).changed();
-                                    changed |= ui.selectable_value(
-                                        &mut cfg.touch.finale.mode,
-                                        TouchMode::Emulated,
-                                        "Emulated",
-                                    ).changed();
+                                    changed |= ui
+                                        .selectable_value(
+                                            &mut cfg.touch.finale.mode,
+                                            TouchMode::Hardware,
+                                            "Hardware",
+                                        )
+                                        .changed();
+                                    changed |= ui
+                                        .selectable_value(
+                                            &mut cfg.touch.finale.mode,
+                                            TouchMode::Emulated,
+                                            "Emulated",
+                                        )
+                                        .changed();
                                 });
                             changed
                         });
@@ -86,8 +93,7 @@ impl<'a> Panel for Touch<'a> {
                             });
                         }
                     });
-                },
-            );
+                });
             action
         };
         finale_action.apply(&mut self.runtime, ModuleName::TouchFinale);
@@ -97,21 +103,13 @@ impl<'a> Panel for Touch<'a> {
             let cfg = self.runtime.config_mut();
             let mut w = ConfigWidgets::new(self.pending_restarts);
             let (action, _) = module_header::show_collapsible(
-                ui, ModuleName::TouchDeluxe(1), dx_p1_status, None,
+                ui,
+                ModuleName::TouchDeluxe(1),
+                dx_p1_status,
                 |ui| {
                     ui.horizontal(|ui| {
-                        // "Enabled" toggles p1_port between Some(default) and None
-                        ui.vertical(|ui| {
-                            ui.label(egui::RichText::new("Enabled").color(egui::Color32::from_gray(160)));
-                            let mut enabled = cfg.touch.dx.p1_port.is_some();
-                            if ui.checkbox(&mut enabled, "").changed() {
-                                cfg.touch.dx.p1_port = if enabled {
-                                    Some("COM6".to_string())
-                                } else {
-                                    None
-                                };
-                                w.mark_dirty(ModuleName::TouchDeluxe(1));
-                            }
+                        w.labeled_config_field(ui, "Enabled", DELUXE_MODULES.to_vec(), |ui| {
+                            ui.checkbox(&mut cfg.touch.dx.enabled, "").changed()
                         });
                         w.labeled_config_field(ui, "Mode", DELUXE_MODULES.to_vec(), |ui| {
                             let mut changed = false;
@@ -121,26 +119,37 @@ impl<'a> Panel for Touch<'a> {
                                     TouchMode::Emulated => "Emulated",
                                 })
                                 .show_ui(ui, |ui| {
-                                    changed |= ui.selectable_value(
-                                        &mut cfg.touch.dx.mode,
-                                        TouchMode::Hardware,
-                                        "Hardware",
-                                    ).changed();
-                                    changed |= ui.selectable_value(
-                                        &mut cfg.touch.dx.mode,
-                                        TouchMode::Emulated,
-                                        "Emulated",
-                                    ).changed();
+                                    changed |= ui
+                                        .selectable_value(
+                                            &mut cfg.touch.dx.mode,
+                                            TouchMode::Hardware,
+                                            "Hardware",
+                                        )
+                                        .changed();
+                                    changed |= ui
+                                        .selectable_value(
+                                            &mut cfg.touch.dx.mode,
+                                            TouchMode::Emulated,
+                                            "Emulated",
+                                        )
+                                        .changed();
                                 });
                             changed
                         });
                         if cfg.touch.dx.mode == TouchMode::Hardware {
-                            if let Some(p1_port) = &mut cfg.touch.dx.p1_port {
-                                w.labeled_config_field(ui, "P1 Port", ModuleName::TouchDeluxe(1), |ui| {
-                                    port_combobox(ui, "dx_p1_port", p1_port)
-                                });
-                            }
-                        }
+                            w.labeled_config_field(
+                                ui,
+                                "P1 Port",
+                                ModuleName::TouchDeluxe(1),
+                                |ui| {
+                                    port_combobox_optional(
+                                        ui,
+                                        "dx_p1_port",
+                                        &mut cfg.touch.dx.p1_port,
+                                    )
+                                },
+                            );
+                        };
                     });
                 },
             );
@@ -167,33 +176,25 @@ impl<'a> Panel for Touch<'a> {
         let action = {
             let cfg = self.runtime.config_mut();
             let mut w = ConfigWidgets::new(self.pending_restarts);
-            let (action, _) = module_header::show_collapsible(
-                ui, ModuleName::TouchDeluxe(2), status, None,
-                |ui| {
+            let (action, _) =
+                module_header::show_collapsible(ui, ModuleName::TouchDeluxe(2), status, |ui| {
                     ui.horizontal(|ui| {
-                        // "Enabled" toggles p2_port between Some(default) and None
-                        ui.vertical(|ui| {
-                            ui.label(egui::RichText::new("Enabled").color(egui::Color32::from_gray(160)));
-                            let mut enabled = cfg.touch.dx.p2_port.is_some();
-                            if ui.checkbox(&mut enabled, "").changed() {
-                                cfg.touch.dx.p2_port = if enabled {
-                                    Some("COM8".to_string())
-                                } else {
-                                    None
-                                };
-                                w.mark_dirty(ModuleName::TouchDeluxe(2));
-                            }
-                        });
                         if cfg.touch.dx.mode == TouchMode::Hardware {
-                            if let Some(p2_port) = &mut cfg.touch.dx.p2_port {
-                                w.labeled_config_field(ui, "P2 Port", ModuleName::TouchDeluxe(2), |ui| {
-                                    port_combobox(ui, "dx_p2_port", p2_port)
-                                });
-                            }
-                        }
+                            w.labeled_config_field(
+                                ui,
+                                "P2 Port",
+                                ModuleName::TouchDeluxe(2),
+                                |ui| {
+                                    port_combobox_optional(
+                                        ui,
+                                        "dx_p2_port",
+                                        &mut cfg.touch.dx.p2_port,
+                                    )
+                                },
+                            );
+                        };
                     });
-                },
-            );
+                });
             action
         };
         action.apply(&mut self.runtime, ModuleName::TouchDeluxe(2));

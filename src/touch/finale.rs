@@ -1,6 +1,7 @@
 use crate::config::touch::finale::{FinaleTouch, Threshold};
 use crate::config::touch::TouchMode;
 use crate::error::{Error, Result};
+use crate::exit_signal::ExitSignal;
 use crate::port::{MockPort, Port, RealPort};
 use crate::runtime::Module;
 use crate::state::SharedState;
@@ -10,8 +11,6 @@ use anyhow::anyhow;
 use tracing::{debug, error, info};
 use std::collections::BTreeMap;
 use std::io::{self, Read, Write};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::time::Duration;
 
@@ -21,7 +20,7 @@ pub struct Finale {
     p1_threshold: ThresholdInfo,
     p2_threshold: ThresholdInfo,
     retry_count: i64,
-    exit_sig: Arc<AtomicBool>,
+    exit_sig: ExitSignal,
 
     input: Box<dyn TouchInput>,
 
@@ -30,7 +29,7 @@ pub struct Finale {
 }
 
 impl Finale {
-    pub fn new(exit_sig: Arc<AtomicBool>, cfg: FinaleTouch, input: Box<dyn TouchInput>, port: Box<dyn Port>) -> Result<Self> {
+    pub fn new(exit_sig: ExitSignal, cfg: FinaleTouch, input: Box<dyn TouchInput>, port: Box<dyn Port>) -> Result<Self> {
         Ok(Self {
             port,
             parser: Parser::new(),
@@ -138,7 +137,7 @@ impl Module for Finale {
         self.port.set_write_timeout(Duration::from_secs(0))?;
 
         for c in 0..self.retry_count {
-            if self.exit_sig.load(Ordering::Acquire) {
+            if self.exit_sig.is_set() {
                 return Err(io::Error::new(io::ErrorKind::Interrupted, "Cancelled").into());
             }
             info!("Trying to initialize Finale Touchscreen. Attempt {}", c + 1);
@@ -195,7 +194,7 @@ impl Module for Finale {
 
 pub fn setup(
     config: FinaleTouch,
-    exit_sig: Arc<AtomicBool>,
+    exit_sig: ExitSignal,
     shared_state: SharedState,
 ) -> Result<Box<dyn Module>> {
     if !config.enabled {

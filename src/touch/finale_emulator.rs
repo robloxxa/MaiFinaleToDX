@@ -1,7 +1,7 @@
 use crate::error::Result;
+use crate::exit_signal::ExitSignal;
 use crate::port::MockPort;
 use crate::touch::TouchState;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
@@ -11,11 +11,11 @@ pub struct FinaleEmulator {
     send_input: bool,
     mock: MockPort,
     touch_state: Arc<TouchState>,
-    exit_sig: Arc<AtomicBool>,
+    exit_sig: ExitSignal,
 }
 
 impl FinaleEmulator {
-    pub fn new(mock: MockPort, touch_state: Arc<TouchState>, exit_sig: Arc<AtomicBool>) -> Self {
+    pub fn new(mock: MockPort, touch_state: Arc<TouchState>, exit_sig: ExitSignal) -> Self {
         Self {
             send_input: false,
             mock,
@@ -35,7 +35,7 @@ impl FinaleEmulator {
         let mut in_command = false;
         let mut cmd_buf = Vec::with_capacity(6);
 
-        while !self.exit_sig.load(Ordering::Acquire) {
+        while !self.exit_sig.is_set() {
             let data = self.mock.take_write_data();
 
             if data.is_empty() {
