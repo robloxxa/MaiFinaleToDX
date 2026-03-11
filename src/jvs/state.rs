@@ -1,17 +1,26 @@
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
 pub struct State {
-    pub buttons: AtomicU32,
+    pub buttons: AtomicU32,           // GUI-driven buttons
+    pub hardware_buttons: AtomicU32,  // Hardware/emulator-driven buttons
+    pub gui_active: AtomicBool,       // Is the GUI panel currently active
 }
 
 impl Default for State {
     fn default() -> Self {
-        Self { buttons: AtomicU32::new(0) }
+        Self {
+            buttons: AtomicU32::new(0),
+            hardware_buttons: AtomicU32::new(0),
+            gui_active: AtomicBool::new(false),
+        }
     }
 }
 
 impl State {
     pub fn set_button(&self, bit: u8, pressed: bool) {
+        if !self.gui_active.load(Ordering::Relaxed) {
+            return;
+        }
         if pressed {
             self.buttons.fetch_or(1u32 << bit, Ordering::Relaxed);
         } else {
@@ -19,8 +28,21 @@ impl State {
         }
     }
 
+    pub fn set_hardware_button(&self, bit: u8, pressed: bool) {
+        if pressed {
+            self.hardware_buttons.fetch_or(1u32 << bit, Ordering::Relaxed);
+        } else {
+            self.hardware_buttons.fetch_and(!(1u32 << bit), Ordering::Relaxed);
+        }
+    }
+
     pub fn load_buttons(&self) -> JvsButtons {
-        let bits = self.buttons.load(Ordering::Relaxed);
+        let gui_bits = if self.gui_active.load(Ordering::Relaxed) {
+            self.buttons.load(Ordering::Relaxed)
+        } else {
+            0
+        };
+        let bits = gui_bits | self.hardware_buttons.load(Ordering::Relaxed);
         let mut p1 = [false; 8];
         let mut p2 = [false; 8];
         for i in 0..8 {

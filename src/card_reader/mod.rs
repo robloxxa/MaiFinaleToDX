@@ -7,8 +7,6 @@ use crate::port::{MockPort, Port, RealPort};
 use crate::runtime::Module;
 use anyhow::anyhow;
 use arrayvec::ArrayVec;
-use jvs_packets::jvs_modified::{ModifiedPacket, RequestPacket};
-use jvs_packets::{Packet, WritePacket};
 use tracing::{error, info};
 use std::fs::{File, OpenOptions};
 use std::io::Write;
@@ -25,7 +23,7 @@ pub(crate) mod state;
 pub use state::State;
 
 use emulator::CardReaderEmulator;
-use packet::{ParseResult, ResponseParser};
+use packet::{Builder, Packet, Parser};
 
 #[non_exhaustive]
 pub struct Cmd;
@@ -51,8 +49,8 @@ pub struct CardReader {
     retry_count: i64,
     exit_sig: ExitSignal,
 
-    req_packet: RequestPacket<128>,
-    parser: ResponseParser,
+    builder: Builder,
+    parser: Parser,
     /// Last successfully parsed response payload (for init logging and card handling).
     res_data: [u8; 128],
     res_len: usize,
@@ -91,8 +89,8 @@ impl CardReader {
             destinations: cfg.destinations.clone(),
             retry_count: cfg.init_retry_count.unwrap_or(i64::MAX),
             exit_sig,
-            req_packet: RequestPacket::default(),
-            parser: ResponseParser::new(),
+            builder: Builder::new(),
+            parser: Parser::new(),
             res_data: [0; 128],
             res_len: 0,
             buf: [0; 64],
@@ -174,11 +172,15 @@ impl CardReader {
         }
     }
 
+    fn write_packet(&mut self, dest: u8, cmd: u8, data: &[u8]) -> io::Result<()> {
+        self.builder.build(dest, cmd, data);
+        self.port.write_all(self.builder.as_slice())
+    }
+
     /// Blocking cmd used during init (port has a long read timeout at that point).
     /// Stores the response data payload into `self.res_data`/`self.res_len`.
     pub fn cmd(&mut self, dest: u8, cmd: u8, data: &[u8]) -> io::Result<()> {
-        self.req_packet.set_dest(dest).set_cmd(cmd).set_data(data);
-        self.port.write_packet(&self.req_packet)?;
+        self.write_packet(dest, cmd, data)?;
 
         loop {
             let n = self.port.read(&mut self.buf)?;
@@ -186,13 +188,13 @@ impl CardReader {
             for i in 0..n {
                 if let Some(result) = self.parser.push(self.buf[i]) {
                     return match result {
-                        ParseResult::Valid { data, len } => {
-                            let copy_len = len.min(self.res_data.len());
+                        Packet::Valid { data } => {
+                            let copy_len = data.len().min(self.res_data.len());
                             self.res_data[..copy_len].copy_from_slice(&data[..copy_len]);
                             self.res_len = copy_len;
                             Ok(())
                         }
-                        ParseResult::Invalid => Err(io::Error::new(
+                        Packet::Invalid => Err(io::Error::new(
                             io::ErrorKind::InvalidData,
                             "Checksum mismatch",
                         )),
@@ -202,7 +204,7 @@ impl CardReader {
         }
     }
 
-    fn poll_impl(&mut self) -> io::Result<()> {
+    fn poll_impl(&mut self) -> Result<()> {
         if self.destinations.is_empty() {
             return Ok(());
         }
@@ -218,11 +220,18 @@ impl CardReader {
             return Ok(());
         }
 
+        // Check for GUI-injected card before sending a hardware POLL.
+        let injected = self.reader_state.lock().unwrap().pending_card.take();
+        if let Some(card_bytes) = injected {
+            self.res_data[3..=10].copy_from_slice(&card_bytes);
+            self.res_len = 19;
+            return self.handle_card();
+        }
+
         let dest = self.destinations[self.current_dest_idx];
 
         if !self.waiting_response {
-            self.req_packet.set_dest(dest).set_cmd(Cmd::POLL).set_data(&[0x00]);
-            self.port.write_packet(&self.req_packet)?;
+            self.write_packet(dest, Cmd::POLL, &[0x00])?;
             self.waiting_response = true;
             return Ok(());
         }
@@ -235,9 +244,9 @@ impl CardReader {
                         self.current_dest_idx =
                             (self.current_dest_idx + 1) % self.destinations.len();
 
-                        if let ParseResult::Valid { data, len } = result {
-                            if len == 19 {
-                                let copy_len = len.min(self.res_data.len());
+                        if let Packet::Valid { data } = result {
+                            if data.len() == 19 {
+                                let copy_len = data.len().min(self.res_data.len());
                                 self.res_data[..copy_len].copy_from_slice(&data[..copy_len]);
                                 self.res_len = copy_len;
                                 self.handle_card()?;
@@ -248,13 +257,13 @@ impl CardReader {
                 }
             }
             Err(ref e) if e.kind() == io::ErrorKind::TimedOut => {}
-            Err(e) => return Err(e),
+            Err(e) => return Err(e.into()),
         }
 
         Ok(())
     }
 
-    fn handle_card(&mut self) -> io::Result<()> {
+    fn handle_card(&mut self) -> Result<()> {
         let mut id = String::with_capacity(16);
         for &b in &self.res_data[3..=10] {
             id.push_str(&format!("{:02X}", b));
@@ -296,10 +305,7 @@ impl Module for CardReader {
     }
 
     fn poll(&mut self) -> Result<()> {
-        if let Err(e) = self.poll_impl() {
-            error!("Card reader poll error: {}", e);
-        }
-        Ok(())
+        self.poll_impl()
     }
 }
 

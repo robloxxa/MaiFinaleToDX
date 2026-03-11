@@ -212,7 +212,7 @@ impl eframe::App for App {
             }
         }
 
-        let is_visible = !ctx.input(|i| i.viewport().minimized.unwrap_or(false));
+        let is_visible = !ctx.input(|i| i.viewport().focused.unwrap_or(false));
         self.runtime.shared_state().gui.set_active(is_visible);
 
         egui::TopBottomPanel::top("nav_panel")
@@ -280,10 +280,6 @@ impl eframe::App for App {
         if self.config_needs_reload {
             self.config_editor.reload_from(self.runtime.config());
             self.config_needs_reload = false;
-        }
-
-        if is_visible {
-            ctx.request_repaint();
         }
     }
 }

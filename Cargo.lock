@@ -1250,12 +1250,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "jvs-packets"
-version = "1.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d097a4bcc2d5ffa893a67349701083576b3ea195170601123cbce0c8c1d8190b"
-
-[[package]]
 name = "khronos_api"
 version = "3.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1343,7 +1337,6 @@ dependencies = [
  "clap",
  "ctrlc",
  "eframe",
- "jvs-packets",
  "maifinale_macros",
  "serde",
  "serde_with",

@@ -72,17 +72,18 @@ impl Deluxe {
                 Ok(())
             },
             Err(ref e) if e.kind() == std::io::ErrorKind::TimedOut => {
+                let raw = match self.num {
+                    1 => self.touch_state.load_p1_finale(),
+                    _ => self.touch_state.load_p2_finale(),
+                };
+                
+                let dx_buf = self.mapping.convert_to_dx_buf(raw);
+                let mut packed = [0u8; 8];
+                packed[..7].copy_from_slice(&dx_buf[1..8]);
+                
+                self.dx_raw.store(u64::from_le_bytes(packed), Ordering::Relaxed);
+                
                 if self.active {
-                    let raw = match self.num {
-                        1 => self.touch_state.load_p1_finale(),
-                        _ => self.touch_state.load_p2_finale(),
-                    };
-                    
-                    let dx_buf = self.mapping.convert_to_dx_buf(raw);
-                    let mut packed = [0u8; 8];
-                    packed[..7].copy_from_slice(&dx_buf[1..8]);
-                    
-                    self.dx_raw.store(u64::from_le_bytes(packed), Ordering::Relaxed);
                     self.send(&dx_buf)?;
                 }
                 
@@ -103,9 +104,7 @@ impl Deluxe {
                 self.active = false;
             }
             Packet::Halt => {
-                self.port.discard_input_buffer()?;
-                self.port.discard_output_buffer()?;
-                self.active = true;
+                self.active = false;
             }
             Packet::Stat => {
                 self.active = true;

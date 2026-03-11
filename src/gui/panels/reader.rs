@@ -112,8 +112,6 @@ impl<'a> Panel for Reader<'a> {
 
     fn left_body(&mut self, ui: &mut egui::Ui) {
         let mut inner = circle_container::inscribed_square(ui);
-        let is_emulated = self.runtime.config().reader.mode == ReaderMode::Emulated;
-
         inner.add_space(10.0);
 
         inner.vertical_centered(|ui| {
@@ -141,7 +139,7 @@ impl<'a> Panel for Reader<'a> {
                 }
             }
 
-            if is_emulated {
+            {
                 ui.add_space(12.0);
                 ui.label(RichText::new("Inject Card").strong());
 

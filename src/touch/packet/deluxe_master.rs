@@ -35,13 +35,13 @@ impl Parser {
     #[inline]
     pub fn push(&mut self, b: u8) -> Option<Packet> {
         match b {
-            b'(' => {
+            b'{' => {
                 self.in_frame = true;
                 self.idx = 0;
                 None
             }
 
-            b')' => {
+            b'}' => {
                 if !self.in_frame {
                     return None;
                 }

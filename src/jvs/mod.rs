@@ -1,9 +1,10 @@
+use arrayvec::ArrayVec;
 use std::io::{self, Read, Write};
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
-use tracing::{error, info};
+use tracing::{debug, error, info, warn};
 
 use crate::config;
 use crate::config::jvs::JvsMode;
@@ -56,6 +57,27 @@ pub struct Jvs {
     pub emu_handle: Option<JoinHandle<Result<()>>>,
 }
 
+fn apply_digital_to_state(state: &State, d: [u8; 5]) {
+    state.set_hardware_button(0, bit_read(d[1], 6)); // test     (active-high)
+    state.set_hardware_button(1, bit_read(d[0], 7)); // service  (active-high)
+    state.set_hardware_button(2, !bit_read(d[1], 2)); // p1_btn1  (active-low)
+    state.set_hardware_button(3, !bit_read(d[1], 3)); // p1_btn2
+    state.set_hardware_button(4, !bit_read(d[1], 0)); // p1_btn3
+    state.set_hardware_button(5, !bit_read(d[2], 7)); // p1_btn4
+    state.set_hardware_button(6, !bit_read(d[2], 6)); // p1_btn5
+    state.set_hardware_button(7, !bit_read(d[2], 5)); // p1_btn6
+    state.set_hardware_button(8, !bit_read(d[2], 4)); // p1_btn7
+    state.set_hardware_button(9, !bit_read(d[2], 3)); // p1_btn8
+    state.set_hardware_button(10, !bit_read(d[3], 2)); // p2_btn1
+    state.set_hardware_button(11, !bit_read(d[3], 3)); // p2_btn2
+    state.set_hardware_button(12, !bit_read(d[3], 0)); // p2_btn3
+    state.set_hardware_button(13, !bit_read(d[4], 7)); // p2_btn4
+    state.set_hardware_button(14, !bit_read(d[4], 6)); // p2_btn5
+    state.set_hardware_button(15, !bit_read(d[4], 5)); // p2_btn6
+    state.set_hardware_button(16, !bit_read(d[4], 4)); // p2_btn7
+    state.set_hardware_button(17, !bit_read(d[4], 3)); // p2_btn8
+}
+
 impl Jvs {
     pub fn new(
         port: Box<dyn Port>,
@@ -87,32 +109,29 @@ impl Jvs {
     }
 
     /// Sends a packet and blocks until a complete response arrives or the port times out.
-    /// Stores the response payload (status byte stripped) into `self.res_data`.
-    fn cmd(&mut self, dest: u8, data: &[u8]) -> Result<Option<&[u8]>> {
+    /// Returns the response payload (status byte stripped) as a stack-allocated ArrayVec.
+    fn cmd(&mut self, dest: u8, data: &[u8]) -> Result<ArrayVec<u8, 253>> {
         self.write_packet(dest, data)?;
 
         loop {
             if self.exit_sig.is_set() {
                 return Err(Error::ModuleStopped);
             }
-            
+
             let n = self.port.read(&mut self.buf)?;
 
             for i in 0..n {
                 if let Some(pkt) = self.parser.push(self.buf[i]) {
                     return match pkt {
                         JvsPacket::Valid { data, .. } => {
-                            // data[0] is the outer JVS status byte; strip it to match
-                            // the payload layout expected by callers.
                             let payload = data.get(1..).unwrap_or(&[]);
-                            let len = payload.len().min(self.res_data.len());
-                            self.res_data[..len].copy_from_slice(&payload[..len]);
-                            self.res_len = len;
-                            Ok(())
+                            Ok(ArrayVec::try_from(payload).unwrap_or_default())
                         }
-                        JvsPacket::Invalid => {
-                            Err(io::Error::new(io::ErrorKind::InvalidData, "Checksum mismatch"))
-                        }
+                        JvsPacket::Invalid(data) => Err(io::Error::new(
+                            io::ErrorKind::InvalidData,
+                            format!("Checksum mismatch: {:#04X?}", data),
+                        )
+                        .into()),
                     };
                 }
             }
@@ -120,7 +139,8 @@ impl Jvs {
     }
 
     fn reset(&mut self) -> io::Result<()> {
-        self.builder.build(BROADCAST, &[Cmd::RESET, Cmd::RESET_ARGUMENT]);
+        self.builder
+            .build(BROADCAST, &[Cmd::RESET, Cmd::RESET_ARGUMENT]);
         self.port.write_all(self.builder.as_slice())?;
         self.port.write_all(self.builder.as_slice())
     }
@@ -136,44 +156,41 @@ impl Jvs {
             if self.exit_sig.is_set() {
                 return Err(io::Error::new(io::ErrorKind::Interrupted, "Cancelled").into());
             }
+
             info!("Trying to initialize Jvs. Attempt {}", c + 1);
-            match (|| -> io::Result<()> {
+            match (|| -> Result<()> {
                 self.reset()?;
                 thread::sleep(Duration::from_millis(500));
 
                 self.cmd(BROADCAST, &[Cmd::ASSIGN_ADDRESS, board])?;
                 info!("Jvs: Assigned address {}", board);
 
-                self.cmd(board, &[Cmd::IDENTIFY])?;
+                let data = self.cmd(board, &[Cmd::IDENTIFY])?;
                 info!(
                     "Jvs: Board Info: {}",
-                    std::str::from_utf8(&self.res_data[..self.res_len])
+                    std::str::from_utf8(&data)
                         .map_err(|_| io::Error::from(io::ErrorKind::Other))?
                 );
 
-                self.cmd(board, &[Cmd::COMMAND_REVISION])?;
+                let data = self.cmd(board, &[Cmd::COMMAND_REVISION])?;
                 info!(
                     "Jvs: Command Version Revision: REV{}.{}",
-                    self.res_data[0] / 10,
-                    self.res_data[0] % 10
+                    data[0] / 10,
+                    data[0] % 10
                 );
 
-                self.cmd(board, &[Cmd::JVS_VERSION])?;
-                info!(
-                    "Jvs: Jvs Version: {}.{}",
-                    self.res_data[0] / 10,
-                    self.res_data[0] % 10
-                );
+                let data = self.cmd(board, &[Cmd::JVS_VERSION])?;
+                info!("Jvs: Jvs Version: {}.{}", data[0] / 10, data[0] % 10);
 
-                self.cmd(board, &[Cmd::COMMS_VERSION])?;
+                let data = self.cmd(board, &[Cmd::COMMS_VERSION])?;
                 info!(
                     "Jvs: Communications Version: {}.{}",
-                    self.res_data[0] / 10,
-                    self.res_data[0] % 10
+                    data[0] / 10,
+                    data[0] % 10
                 );
 
-                self.cmd(board, &[Cmd::CAPABILITIES])?;
-                info!("Jvs: Feature check: {:02X?}", &self.res_data[..self.res_len]);
+                let data = self.cmd(board, &[Cmd::CAPABILITIES])?;
+                info!("Jvs: Feature check: {:02X?}", &data[..]);
 
                 Ok(())
             })() {
@@ -182,7 +199,7 @@ impl Jvs {
                     self.port.set_write_timeout(Duration::from_secs(2))?;
                     return Ok(());
                 }
-                Err(e) if e.kind() == io::ErrorKind::TimedOut => {
+                Err(Error::Io(ref e)) if e.kind() == io::ErrorKind::TimedOut => {
                     error!("Jvs initialization timed out")
                 }
                 Err(e) => {
@@ -208,12 +225,20 @@ impl Jvs {
                 for i in 0..n {
                     if let Some(pkt) = self.parser.push(self.buf[i]) {
                         self.waiting_response = false;
-                        if let JvsPacket::Valid { data, .. } = pkt {
-                            let payload = data.get(1..).unwrap_or(&[]);
-                            let len = payload.len().min(self.res_data.len());
-                            self.res_data[..len].copy_from_slice(&payload[..len]);
-                            self.res_len = len;
-                            self.process_digital()?;
+                        match pkt {
+                            JvsPacket::Valid { data, .. } => {
+                                let d: Option<[u8; 5]> = if let Some(p) = data.get(1..) {
+                                    (p.len() >= 6).then(|| [p[1], p[2], p[3], p[4], p[5]])
+                                } else {
+                                    None
+                                };
+                                if let Some(d) = d {
+                                    self.process_digital(d)?;
+                                }
+                            }
+                            JvsPacket::Invalid(data) => {
+                                warn!("Invalid JVS packet: {:#04X?}", data);
+                            }
                         }
                     }
                 }
@@ -225,42 +250,28 @@ impl Jvs {
         Ok(())
     }
 
-    fn process_digital(&mut self) -> io::Result<()> {
-        if self.res_len < 5 {
-            return Ok(());
-        }
+    fn process_digital(&mut self, d: [u8; 5]) -> io::Result<()> {
+        apply_digital_to_state(&self.jvs_state, d);
 
-        // Copy to avoid borrow conflicts when calling keyboard methods.
-        let d = [
-            self.res_data[0],
-            self.res_data[1],
-            self.res_data[2],
-            self.res_data[3],
-            self.res_data[4],
-        ];
-
-        let gui = self.jvs_state.load_buttons();
-
-        self.keyboard.key(self.input.test,    bit_read(d[1], 6) || gui.test);
-        self.keyboard.key(self.input.service, bit_read(d[0], 7) || gui.service);
-
-        self.keyboard.key(self.input.p1_btn1, !bit_read(d[1], 2) || gui.p1[0]);
-        self.keyboard.key(self.input.p1_btn2, !bit_read(d[1], 3) || gui.p1[1]);
-        self.keyboard.key(self.input.p1_btn3, !bit_read(d[1], 0) || gui.p1[2]);
-        self.keyboard.key(self.input.p1_btn4, !bit_read(d[2], 7) || gui.p1[3]);
-        self.keyboard.key(self.input.p1_btn5, !bit_read(d[2], 6) || gui.p1[4]);
-        self.keyboard.key(self.input.p1_btn6, !bit_read(d[2], 5) || gui.p1[5]);
-        self.keyboard.key(self.input.p1_btn7, !bit_read(d[2], 4) || gui.p1[6]);
-        self.keyboard.key(self.input.p1_btn8, !bit_read(d[2], 3) || gui.p1[7]);
-
-        self.keyboard.key(self.input.p2_btn1, !bit_read(d[3], 2) || gui.p2[0]);
-        self.keyboard.key(self.input.p2_btn2, !bit_read(d[3], 3) || gui.p2[1]);
-        self.keyboard.key(self.input.p2_btn3, !bit_read(d[3], 0) || gui.p2[2]);
-        self.keyboard.key(self.input.p2_btn4, !bit_read(d[4], 7) || gui.p2[3]);
-        self.keyboard.key(self.input.p2_btn5, !bit_read(d[4], 6) || gui.p2[4]);
-        self.keyboard.key(self.input.p2_btn6, !bit_read(d[4], 5) || gui.p2[5]);
-        self.keyboard.key(self.input.p2_btn7, !bit_read(d[4], 4) || gui.p2[6]);
-        self.keyboard.key(self.input.p2_btn8, !bit_read(d[4], 3) || gui.p2[7]);
+        let combined = self.jvs_state.load_buttons();
+        self.keyboard.key(self.input.test, combined.test);
+        self.keyboard.key(self.input.service, combined.service);
+        self.keyboard.key(self.input.p1_btn1, combined.p1[0]);
+        self.keyboard.key(self.input.p1_btn2, combined.p1[1]);
+        self.keyboard.key(self.input.p1_btn3, combined.p1[2]);
+        self.keyboard.key(self.input.p1_btn4, combined.p1[3]);
+        self.keyboard.key(self.input.p1_btn5, combined.p1[4]);
+        self.keyboard.key(self.input.p1_btn6, combined.p1[5]);
+        self.keyboard.key(self.input.p1_btn7, combined.p1[6]);
+        self.keyboard.key(self.input.p1_btn8, combined.p1[7]);
+        self.keyboard.key(self.input.p2_btn1, combined.p2[0]);
+        self.keyboard.key(self.input.p2_btn2, combined.p2[1]);
+        self.keyboard.key(self.input.p2_btn3, combined.p2[2]);
+        self.keyboard.key(self.input.p2_btn4, combined.p2[3]);
+        self.keyboard.key(self.input.p2_btn5, combined.p2[4]);
+        self.keyboard.key(self.input.p2_btn6, combined.p2[5]);
+        self.keyboard.key(self.input.p2_btn7, combined.p2[6]);
+        self.keyboard.key(self.input.p2_btn8, combined.p2[7]);
 
         if let Err(e) = self.keyboard.flush() {
             error!("JVS keyboard flush error: {}", e);
@@ -283,10 +294,7 @@ impl Module for Jvs {
     }
 
     fn poll(&mut self) -> Result<()> {
-        if let Err(e) = self.poll_impl() {
-            error!("Jvs poll error: {}", e);
-        }
-        Ok(())
+        self.poll_impl()
     }
 }
 
